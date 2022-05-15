@@ -91,3 +91,7 @@
 
 # Vim swap files
 *.swp
+
+
+!.example.env
+!.example.dev.env

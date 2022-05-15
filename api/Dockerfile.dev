@@ -1,0 +1,11 @@
+FROM node:lts
+
+WORKDIR /app
+
+ENV HOST 0.0.0.0
+ENV PORT 3000
+ENV NODE_ENV development
+
+# Don't need to expose the port; the containers address given in the prompt is directly accessible 
+
+CMD [ "yarn", "docker-dev-entry" ]
