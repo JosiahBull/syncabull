@@ -68,7 +68,8 @@ services:
       - DB_NAME=syncabull
       - DB_USER=syncabull
       - DB_PASS=${DB_PASS}
-      - REQUEST_TIMEOUT_THRESHOLD
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - BROWSER_BASE_URL=https://${DOMAIN}
     labels:
       - traefik.enable=true

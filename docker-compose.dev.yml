@@ -66,6 +66,8 @@ services:
       - DB_NAME=syncabull
       - DB_USER=syncabull
       - DB_PASS=syncabull
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - BROWSER_BASE_URL=http://${APP_HOST:-localhost}:${APP_PORT:-3000}
     labels:
       - traefik.enable=true
