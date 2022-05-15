@@ -34,7 +34,6 @@ services:
     environment:
       - PORT=3000
       - HOST=0.0.0.0
-      - BASE_URL=http://api:3000/
       - BROWSER_BASE_URL=http://${APP_HOST:-localhost}:${APP_PORT:-3000}
     labels:
       - traefik.enable=true

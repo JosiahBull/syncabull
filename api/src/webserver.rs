@@ -1,16 +1,19 @@
 use std::convert::Infallible;
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use oauth2::reqwest::http_client;
 use oauth2::{
-    basic::BasicClient, url::Url, AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
+    basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
     PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RevocationUrl, Scope, TokenResponse,
     TokenUrl,
 };
+use rand::distributions::Alphanumeric;
+use rand::Rng;
 use warp::{http::Response, Filter, Reply};
 
-use crate::json_templates::QueryData;
+use crate::json_templates::{GoogleProfile, QueryData};
 use crate::{AppState, AuthToken, GoogleAuth, UserState};
 
 #[derive(Debug, Default)]
@@ -19,7 +22,7 @@ pub struct WebServerBuilder {
     google_client_secret: Option<String>,
     auth_url: Option<String>,
     token_url: Option<String>,
-    redirect_url: Option<String>,
+    domain: Option<String>,
     state: Option<Arc<AppState>>,
 }
 
@@ -52,9 +55,9 @@ impl WebServerBuilder {
         }
     }
 
-    pub fn redirect_url<T: Into<String>>(self, redirect_url: T) -> Self {
+    pub fn domain<T: Into<String>>(self, domain: T) -> Self {
         WebServerBuilder {
-            redirect_url: Some(redirect_url.into()),
+            domain: Some(domain.into()),
             ..self
         }
     }
@@ -82,8 +85,11 @@ impl WebServerBuilder {
             Some(token_url),
         )
         .set_redirect_uri(
-            RedirectUrl::new(self.redirect_url.expect("redirect url set"))
-                .expect("Invalid redirect URL"),
+            RedirectUrl::new(format!(
+                "{}/api/1/auth",
+                self.domain.as_ref().expect("redirect url set")
+            ))
+            .expect("Invalid redirect URL"),
         )
         .set_revocation_uri(
             RevocationUrl::new("https://oauth2.googleapis.com/revoke".to_string())
@@ -100,6 +106,9 @@ impl WebServerBuilder {
             .add_scope(Scope::new(String::from(
                 "https://www.googleapis.com/auth/plus.me",
             )))
+            .add_scope(Scope::new(String::from(
+                "https://www.googleapis.com/auth/userinfo.email",
+            )))
             .set_pkce_challenge(pkce_code_challenge)
             .add_extra_param("prompt", "consent")
             .add_extra_param("access_type", "offline")
@@ -109,16 +118,20 @@ impl WebServerBuilder {
             client,
             pkce_code_verifier,
             csrf_state,
-            url: authorize_url,
+            auth_url: authorize_url.to_string(),
+            domain: self.domain.expect("domain set"),
+            state: self.state.expect("state set"),
         }
     }
 }
 
 pub struct WebServer {
     pub client: BasicClient,
+    pub domain: String,
     pub pkce_code_verifier: PkceCodeVerifier,
     pub csrf_state: CsrfToken,
-    pub url: Url,
+    pub auth_url: String,
+    pub state: Arc<AppState>,
 }
 
 fn with_extra(
@@ -132,19 +145,26 @@ impl WebServer {
         WebServerBuilder::default()
     }
 
+    async fn handle_profile_request(
+        server: Arc<WebServer>,
+        data: QueryData,
+    ) -> Result<impl Reply, Infallible> {
+        Ok(String::from("not implemented"))
+    }
+
     async fn handle_auth_request(
         server: Arc<WebServer>,
         data: QueryData,
     ) -> Result<impl Reply, Infallible> {
-
         let code = AuthorizationCode::new(data.code);
         // Exchange the code with a token.
+        let token_server = server.clone();
         let token_response = tokio::task::spawn_blocking(move || {
-            server
+            token_server
                 .client
                 .exchange_code(code)
                 .set_pkce_verifier(PkceCodeVerifier::new(
-                    server.pkce_code_verifier.secret().to_string(),
+                    token_server.pkce_code_verifier.secret().to_string(),
                 ))
                 .request(http_client)
         })
@@ -152,33 +172,91 @@ impl WebServer {
         .unwrap()
         .unwrap();
 
-        // TODO: load user data
-        // TODO: we should probably encrypt these tokens using something like sodium
-        let user: UserState = UserState {
-            user_id: todo!(),
-            email: String::from(""),
-            auth_token: todo!(),
-            google_token: GoogleAuth {
-                token: token_response.access_token().secret().to_string(),
-                token_expiry_sec_epoch: SystemTime::now()
-                    .checked_add(Duration::from_secs(
-                        token_response.expires_in().unwrap().as_secs(),
-                    ))
-                    .unwrap()
-                    .duration_since(UNIX_EPOCH)
-                    .expect("time went backwards?")
-                    .as_secs()
-                    - 10, //lose 10 seconds, just in case
-                refresh_token: token_response.refresh_token().unwrap().secret().to_string(),
-            },
-            next_token: None,
-            initial_scan_completed: false,
-            last_checked: u64::MAX,
-            photos_scanned: 0,
+        let google_token = GoogleAuth {
+            token: token_response.access_token().secret().to_string(),
+            token_expiry_sec_epoch: SystemTime::now()
+                .checked_add(Duration::from_secs(
+                    token_response.expires_in().unwrap().as_secs(),
+                ))
+                .unwrap()
+                .duration_since(UNIX_EPOCH)
+                .expect("time went backwards?")
+                .as_secs()
+                - 10, //lose 10 seconds, just in case
+            refresh_token: token_response.refresh_token().unwrap().secret().to_string(),
         };
 
-        Ok(Response::builder().body("Authorisation Completed"))
+        let response = reqwest::Client::new()
+            .get("https://openidconnect.googleapis.com/v1/userinfo")
+            .bearer_auth(&google_token.token)
+            .send()
+            .await
+            .unwrap();
+
+        let profile: GoogleProfile = response.json().await.unwrap();
+
+        let mut writer = server.state.users.write().await;
+        let user = writer.get_mut(&profile.email);
+        if let Some(mut user) = user {
+            user.google_token = google_token;
+        } else {
+            writer.insert(
+                profile.email.clone(),
+                UserState {
+                    user_id: rand::thread_rng()
+                        .sample_iter(&Alphanumeric)
+                        .take(10)
+                        .map(char::from)
+                        .collect(),
+                    auth_token: rand::thread_rng()
+                        .sample_iter(&Alphanumeric)
+                        .take(32)
+                        .map(char::from)
+                        .collect(),
+                    google_token,
+                    next_token: None,
+                    initial_scan_completed: false,
+                    last_checked: u64::MAX,
+                    photos_scanned: 0,
+                    profile_fetch_epoch: SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .expect("time went backwards")
+                        .as_secs(),
+                    email: profile.email.clone(),
+                    profile_picture: profile.picture,
+                },
+            );
+        }
+
+        //Generate otc
+        let otc: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(32)
+            .map(char::from)
+            .collect();
+        let mut writer = server.state.otcs.write().await;
+        writer.insert(
+            otc.clone(),
+            crate::OneTimeCode {
+                email: profile.email,
+                expiry_sec_epoch: SystemTime::now()
+                    .checked_add(Duration::from_secs(60))
+                    .unwrap()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("time went backwards")
+                    .as_secs(),
+            },
+        );
+
+        //send user to authentication success page, with a one time code to be used for login purposes
+        Ok(warp::redirect::found(
+            format!("{}/auth-success?code={}", &server.domain, otc)
+                .parse::<warp::http::Uri>()
+                .unwrap(),
+        ))
     }
+
+    pub async fn reset_auth_token() {}
 
     pub async fn handle_download_request(
         server: Arc<WebServer>,
@@ -192,19 +270,16 @@ impl WebServer {
     pub async fn run(self) {
         let server = Arc::new(self);
 
-        // Load the url used for authentication
-        let auth_url = warp::get()
+        // Get the authentication url
+        let login = warp::get()
             .and(warp::path("login"))
             .and(warp::path::end())
             .and(with_extra(server.clone()))
-            .map(move |server: Arc<WebServer>| {
-                Ok(Response::builder()
-                    .header("Content-Type", "text/html")
-                    .body(format!("{}", server.url))
-                    .unwrap())
+            .map(|server: Arc<WebServer>| {
+                warp::redirect::found(server.auth_url.parse::<warp::http::Uri>().unwrap())
             });
 
-        // Authentication request outcome
+        // client has an auth-code and wants to authenticate
         let auth = warp::get()
             .and(warp::path("auth"))
             .and(warp::path::end())
@@ -220,12 +295,37 @@ impl WebServer {
             .and(warp::header::optional::<AuthToken>("authorisation"))
             .and_then(WebServer::handle_download_request);
 
+        // Get the profile of a user, using a one-time-token
+        let load_profile = warp::get()
+            .and(warp::path("profile"))
+            .and(warp::path::end())
+            .and(with_extra(server.clone()))
+            .and(warp::query::<QueryData>())
+            .and_then(WebServer::handle_profile_request);
+
+        // General catch-all endpoint if a failure occurs
+        let catcher = warp::any()
+            .and(warp::path::full())
+            .map(|path| format!("Path {:?} not found", path));
+
         // Server Authentication
         let routes = warp::any()
             .and(warp::path("api"))
             .and(warp::path("1"))
-            .and(auth_url.or(auth).or(download_images));
+            .and(login.or(auth).or(download_images))
+            .or(catcher);
 
-        warp::serve(routes).run(([127, 0, 0, 1], 8080)).await;
+        warp::serve(routes)
+            .run((
+                std::env::var("HOST")
+                    .expect("HOST to be set")
+                    .parse::<Ipv4Addr>()
+                    .expect("valid port"),
+                std::env::var("PORT")
+                    .expect("PORT to be set")
+                    .parse()
+                    .expect("valid port"),
+            ))
+            .await;
     }
 }

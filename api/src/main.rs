@@ -10,7 +10,6 @@ use tokio::sync::RwLock;
 use webserver::WebServer;
 
 pub type AuthToken = String;
-pub type UserId = [u8; 8]; //8-byte userid
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GoogleAuth {
@@ -25,9 +24,7 @@ pub struct GoogleAuth {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserState {
     /// The id of this user
-    pub user_id: UserId,
-    /// Email address of this user
-    pub email: String,
+    pub user_id: String,
     /// users authentication token they should use to connect to the api
     pub auth_token: AuthToken,
     /// The users google bearer token
@@ -40,11 +37,28 @@ pub struct UserState {
     pub last_checked: u64,
     /// The number of photos scanned by the ai so far
     pub photos_scanned: u64,
+    /// seconds since epoch when user profile was last fetched
+    pub profile_fetch_epoch: u64,
+    /// User email address
+    pub email: String,
+    /// User profile picture
+    pub profile_picture: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OneTimeCode {
+    /// The email this code is assigned to
+    pub email: String,
+    /// The time the code expires in seconds since unix epoch
+    pub expiry_sec_epoch: u64,
 }
 
 #[derive(Default, Debug)]
 pub struct AppState {
-    users: RwLock<HashMap<UserId, UserState>>,
+    /// registered users
+    users: RwLock<HashMap<String, UserState>>,
+    /// one time auth codes
+    otcs: RwLock<HashMap<String, OneTimeCode>>,
 }
 
 #[tokio::main]
@@ -59,17 +73,13 @@ async fn main() {
             .google_client_secret(
                 env::var("GOOGLE_CLIENT_SECRET").expect("GOOGLE_CLIENT_SECRET is set"),
             )
-            .redirect_url("http://localhost:8080/api/1/auth")
+            .domain(env::var("BROWSER_BASE_URL").expect("BROWSER_BASE_URL is set"))
             .token_url("https://www.googleapis.com/oauth2/v3/token")
             .auth_url("https://accounts.google.com/o/oauth2/v2/auth")
             .state(webserver_state)
             .build()
             .run()
             .await;
-    });
-
-    let refresh_service = tokio::task::spawn(async move {
-        //TODO: this task will handle refreshing google api tokens for users when they are close to expiring
     });
 
     join_all([webserver_handle]).await;

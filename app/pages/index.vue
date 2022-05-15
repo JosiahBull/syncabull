@@ -7,8 +7,7 @@
         <h1 class="mx-auto align-middle text-center font-weight-bolder sans">Backup Your <br>Google Photos</h1>
       </b-row>
       <b-row>
-        <b-button size="lg" variant="primary" class="mx-auto align-middle font-weight-bold" href="/login">Start Syncing
-        </b-button>
+        <LoginButton class="mx-auto align-middle font-weight-bold"></LoginButton>
       </b-row>
     </b-container>
     <Footer></Footer>
@@ -17,6 +16,7 @@
 
 <script lang="ts">
 import Vue from 'vue'
+import LoginButton from '~/components/LoginButton.vue';
 
 function vert_cent_hero(element: any) {
   const window_height = window.innerHeight;
@@ -25,12 +25,13 @@ function vert_cent_hero(element: any) {
 }
 
 export default Vue.extend({
-  name: 'IndexPage',
-  beforeMount() {
-    const el = document.querySelector('#hero');
-    vert_cent_hero(el);
-    window.addEventListener('resize', vert_cent_hero.bind(null, el));
-  },
+    name: "IndexPage",
+    beforeMount() {
+        const el = document.querySelector("#hero");
+        vert_cent_hero(el);
+        window.addEventListener("resize", vert_cent_hero.bind(null, el));
+    },
+    components: { LoginButton }
 })
 
 </script>

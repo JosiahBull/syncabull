@@ -1,13 +1,13 @@
 use crate::{
     json_templates::{GetMediaItems, MediaItem},
-    AppState, UserId,
+    AppState,
 };
 use reqwest::Method;
 use std::sync::Arc;
 
 pub async fn get_initial(
     state: Arc<AppState>,
-    user_id: UserId,
+    user_id: String,
 ) -> Result<Vec<MediaItem>, Box<dyn std::error::Error>> {
     let user_lock = state.users.read().await;
     let user_state = user_lock.get(&user_id);
@@ -33,7 +33,7 @@ pub async fn get_initial(
         .header("Content-type", "application/json")
         .header(
             "Authorization",
-            format!("Bearer {}", user_state.google_token.as_ref().unwrap().token), //TODO; respect invalid tokens
+            format!("Bearer {}", "test"), //TODO; respect invalid tokens
         )
         .send()
         .await
@@ -62,7 +62,7 @@ pub async fn get_initial(
 
 pub async fn get_new_photos(
     state: Arc<AppState>,
-    user_id: UserId,
+    user_id: String,
 ) -> Result<Vec<MediaItem>, Box<dyn std::error::Error>> {
     todo!()
 }

@@ -63,3 +63,15 @@ pub struct GetMediaItems {
     pub mediaItems: Vec<MediaItem>,
     pub nextPageToken: Option<String>,
 }
+
+#[derive(Deserialize)]
+pub struct GoogleProfile {
+    /// Google ID for user
+    pub sub: String,
+    /// Url to profile picture of user
+    pub picture: String,
+    /// Email address of user
+    pub email: String,
+    /// Whether the email of this user has been verified
+    pub email_verified: bool,
+}

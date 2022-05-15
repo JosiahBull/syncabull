@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "nuxt",
+    "dev:docker": "docker build -t fsp-ui-dev -f Dockerfile.dev .; docker run -it --rm --name fsp-ui-dev -v $(pwd):/app:z fsp-ui-dev",
+    "docker-dev-entry": "yarn; yarn dev",
     "build": "nuxt build",
     "start": "nuxt start",
     "generate": "nuxt generate"
