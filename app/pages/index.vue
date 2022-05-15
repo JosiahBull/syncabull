@@ -1,5 +1,6 @@
 <template>
   <div>
+    <Head></Head>
     <Nav id="nav"></Nav>
     <b-container id="hero" class="slide-up-fade-in">
       <b-row>
@@ -10,6 +11,7 @@
         </b-button>
       </b-row>
     </b-container>
+    <Footer></Footer>
   </div>
 </template>
 
