@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Syncabull Cookie Loader</title>
+  </head>
+  <body>
+      <div>Loading data... you should be redirected soon. If not click <a id="link" href="{{redirect_url}}">here</a></div>
+
+      <script>
+        'use strict';
+        let url = `{{{ redirect_url }}}`;
+        let valid_url = `{{{ valid_path }}}`;
+        let token = `{{{ token }}}`;
+
+        document.onload = setTimeout(function() {
+          document.cookie = `auth_token=${token}; path=${valid_url}`;
+          window.location.replace(url);
+        }, 1000);
+      </script>
+  </body>
+</html>

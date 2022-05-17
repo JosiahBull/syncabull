@@ -11,7 +11,7 @@ export default {
   data: function() {
     return {
       logged_in: false,
-      login_link: '/api/v1/login'
+      login_link: '/api/1/login'
     }
   },
   beforeMount() {

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Syncabull</title>
+  </head>
+  <body>
+      {{!-- TODO: this could be made prettier? --}}
+      <div>Authorisation Success, you may return to your terminal.</div>
+
+      <script>
+        'use strict';
+
+        let token = `{{{ token }}}`;
+        let post_url = `{{{ post_url }}}`;
+
+        function getCookie(cname) {
+          let name = cname + "=";
+          let decodedCookie = decodeURIComponent(document.cookie);
+          let ca = decodedCookie.split(';');
+          for(let i = 0; i <ca.length; i++) {
+            let c = ca[i];
+            while (c.charAt(0) == ' ') {
+              c = c.substring(1);
+            }
+            if (c.indexOf(name) == 0) {
+              return c.substring(name.length, c.length);
+            }
+          }
+          return "";
+        }
+
+        function send_post(url, data) {
+          let xhr = new XMLHttpRequest();
+          xhr.open('POST', url, false);
+          xhr.setRequestHeader('Content-Type', 'application/json');
+          xhr.send(JSON.stringify(data));
+        }
+
+        let cookie = getCookie('auth_token');
+
+        token = JSON.parse(token);
+        token.id = cookie;
+
+        send_post(post_url, token);
+      </script>
+  </body>
+</html>
