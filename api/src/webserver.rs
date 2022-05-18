@@ -2,16 +2,15 @@ use std::{
     collections::BTreeMap,
     convert::Infallible,
     net::Ipv4Addr,
-    str::FromStr,
     sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime},
 };
 
 use handlebars::Handlebars;
 use oauth2::{
-    basic::BasicClient, http::Uri, reqwest::http_client, AuthUrl, AuthorizationCode, ClientId,
-    ClientSecret, CsrfToken, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RevocationUrl,
-    Scope, TokenResponse, TokenUrl,
+    basic::BasicClient, reqwest::http_client, AuthUrl, AuthorizationCode, ClientId, ClientSecret,
+    CsrfToken, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RevocationUrl, Scope,
+    TokenResponse, TokenUrl,
 };
 use reqwest::StatusCode;
 use warp::{reject::Reject, Filter, Rejection, Reply};
@@ -19,6 +18,7 @@ use warp::{reject::Reject, Filter, Rejection, Reply};
 use crate::{
     auth::{Credentials, Token},
     json_templates::QueryData,
+    photoscanner::PhotoScanner,
     AppState, GoogleAuth, UserData,
 };
 
@@ -50,7 +50,8 @@ pub struct WebServerBuilder {
     token_url: Option<String>,
     domain: Option<String>,
     state: Option<Arc<AppState>>,
-    handlebars: Arc<Handlebars<'static>>,
+    handlebars: Option<Arc<Handlebars<'static>>>,
+    scanner: Option<Arc<PhotoScanner>>,
 }
 
 impl WebServerBuilder {
@@ -102,7 +103,14 @@ impl WebServerBuilder {
         handlebars.set_strict_mode(true);
 
         WebServerBuilder {
-            handlebars: Arc::new(handlebars),
+            handlebars: Some(Arc::new(handlebars)),
+            ..self
+        }
+    }
+
+    pub fn scanner<T: Into<PhotoScanner>>(self, scanner: T) -> Self {
+        WebServerBuilder {
+            scanner: Some(Arc::new(scanner.into())),
             ..self
         }
     }
@@ -159,7 +167,8 @@ impl WebServerBuilder {
             auth_url: authorize_url.to_string(),
             domain: self.domain.expect("domain set"),
             state: self.state.expect("state set"),
-            handlebars: self.handlebars,
+            handlebars: self.handlebars.expect("handlebars set"),
+            scanner: self.scanner.expect("scanner set"),
         }
     }
 }
@@ -172,6 +181,7 @@ pub struct WebServer {
     pub auth_url: String,
     pub state: Arc<AppState>,
     pub handlebars: Arc<Handlebars<'static>>,
+    pub scanner: Arc<PhotoScanner>,
 }
 
 fn with<T: Send + Sync>(
@@ -245,8 +255,52 @@ impl WebServer {
         Ok(reply)
     }
 
-    pub async fn download(state: Arc<WebServer>, token: String) -> Result<impl Reply, Rejection> {
-        Ok(String::from("not implemented"))
+    pub async fn download(server: Arc<WebServer>, token: String) -> Result<impl Reply, Rejection> {
+        let user_id = match server.state.tokens.read().await.get(&token) {
+            Some(t) => t.id.clone(),
+            None => {
+                return Err(warp::reject::custom(CustomError::new(
+                    String::from("invalid token"),
+                    StatusCode::UNAUTHORIZED,
+                )))
+            }
+        };
+
+        let google_token = match server.state.users.read().await.get(&user_id) {
+            Some(u) => u.google_auth.clone(),
+            None => {
+                return Err(warp::reject::custom(CustomError::new(
+                    String::from("invalid user"),
+                    StatusCode::UNAUTHORIZED,
+                )))
+            }
+        };
+
+        let google_token = match google_token {
+            Some(t) => t,
+            None => {
+                return Err(warp::reject::custom(CustomError::new(
+                    String::from("not google authorised"),
+                    StatusCode::UNAUTHORIZED,
+                )))
+            }
+        };
+
+        let scanner = server.scanner.clone();
+
+        let res = match scanner.scan(&google_token, 50, None).await {
+            Ok(r) => r,
+            Err(e) => {
+                return Err(warp::reject::custom(CustomError::new(
+                    format!("{}", e),
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                )))
+            }
+        };
+
+        let reply = warp::reply::with_status(warp::reply::json(&res), warp::http::StatusCode::OK);
+
+        Ok(reply)
     }
 
     pub async fn get_auth_url(
@@ -294,7 +348,7 @@ impl WebServer {
             )));
         }
 
-        let callback_url = String::from("/api/v1/callback");
+        let callback_url = String::from("/api/1/callback");
 
         let mut data = BTreeMap::new();
 
@@ -328,13 +382,9 @@ impl WebServer {
             token: token_response.access_token().secret().to_string(),
             token_expiry_sec_epoch: SystemTime::now()
                 .checked_add(Duration::from_secs(
-                    token_response.expires_in().unwrap().as_secs(),
+                    token_response.expires_in().unwrap().as_secs() - 10, //lose 10 seconds, just in case
                 ))
-                .unwrap()
-                .duration_since(UNIX_EPOCH)
-                .expect("time went backwards?")
-                .as_secs()
-                - 10, //lose 10 seconds, just in case
+                .unwrap(),
             refresh_token: token_response.refresh_token().unwrap().secret().to_string(),
         };
 
@@ -351,7 +401,10 @@ impl WebServer {
 
         let mut data = BTreeMap::new();
         data.insert("token", serde_json::to_string(&token).unwrap());
-        data.insert("post_url", format!("{}/api/1/token_completion", server.domain));
+        data.insert(
+            "post_url",
+            format!("{}/api/1/token_completion", server.domain),
+        );
 
         let body = server.handlebars.render("success", &data).unwrap();
 
@@ -371,7 +424,6 @@ impl WebServer {
     ) -> Result<impl Reply, Rejection> {
         // This endpoint is used to validate and finalise a login
 
-        println!("Got to step 1");
         //check that the provided cookie is valid
         let unauth_user = data.id;
         let user = match server.state.auth_keys.write().await.remove(&unauth_user) {
@@ -384,7 +436,6 @@ impl WebServer {
             }
         };
 
-        println!("Got to step 2");
         //validate there is an unclaimed login
         let unclaimed_token = data.token;
         let unclaimed_login = match server
@@ -403,7 +454,6 @@ impl WebServer {
             }
         };
 
-        println!("Got to step 3");
         //login this user
         match server.state.users.write().await.get_mut(&user.id) {
             Some(s) => s.google_auth = Some(unclaimed_login),
@@ -415,8 +465,6 @@ impl WebServer {
             }
         }
 
-        println!("We have authorised a user: {:?}", server.state.users.read().await);
-
         Ok(warp::reply::with_status(
             warp::reply(),
             StatusCode::NO_CONTENT,
@@ -424,8 +472,8 @@ impl WebServer {
     }
 
     pub async fn login_check(
-        state: Arc<WebServer>,
-        token: String,
+        _: Arc<WebServer>,
+        _: String,
     ) -> Result<impl Reply, Infallible> {
         Ok(String::from("not implemented"))
     }

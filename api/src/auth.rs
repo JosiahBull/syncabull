@@ -1,4 +1,4 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, Duration};
 
 use rand::{distributions::Alphanumeric, Rng};
 
@@ -53,7 +53,7 @@ impl Credentials {
 pub struct Token {
     pub id: Id,
     pub token: String,
-    pub expiry: u64,
+    pub expiry: SystemTime,
 }
 
 impl Token {
@@ -65,20 +65,12 @@ impl Token {
                 .take(32)
                 .map(char::from)
                 .collect(),
-            expiry: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                + 3600,
+            expiry: SystemTime::now().checked_add(Duration::from_secs(3600)).unwrap(),
         }
     }
 
     /// function to check if token has expired
     pub fn is_expired(&self) -> bool {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            > self.expiry
+        SystemTime::now() > self.expiry
     }
 }

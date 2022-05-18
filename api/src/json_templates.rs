@@ -1,11 +1,13 @@
-use serde::Deserialize;
+#![allow(non_snake_case)]
+
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
 pub struct QueryData {
     pub code: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct MediaMetadata {
     pub creationTime: String,
     pub width: String,
@@ -14,25 +16,25 @@ pub struct MediaMetadata {
     pub video: Option<Video>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Photo {
-    pub cameraMake: String,
-    pub cameraModel: String,
-    pub focalLength: f64,
-    pub apertureFNumber: f64,
-    pub isoEquivalent: u64,
-    pub exposureTime: String,
+    pub cameraMake: Option<String>,
+    pub cameraModel: Option<String>,
+    pub focalLength: Option<f64>,
+    pub apertureFNumber: Option<f64>,
+    pub isoEquivalent: Option<u64>,
+    pub exposureTime: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Video {
-    pub cameraMake: String,
-    pub cameraModel: String,
-    pub fps: f64,
-    pub status: VideoProcessingStatus,
+    pub cameraMake: Option<String>,
+    pub cameraModel: Option<String>,
+    pub fps: Option<f64>,
+    pub status: Option<VideoProcessingStatus>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub enum VideoProcessingStatus {
     UNSPECIFIED,
     PROCESSING,
@@ -40,21 +42,21 @@ pub enum VideoProcessingStatus {
     FAILED,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct ContributorInfo {
     pub profilePictureBaseUrl: String,
     pub displayName: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct MediaItem {
     pub id: String,
-    pub description: String,
+    pub description: Option<String>,
     pub productUrl: String,
     pub baseUrl: String,
-    pub mimeType: String,
-    pub mediaMetadata: MediaMetadata,
-    pub contributorInfo: ContributorInfo,
+    pub mimeType: Option<String>,
+    pub mediaMetadata: Option<MediaMetadata>,
+    pub contributorInfo: Option<ContributorInfo>,
     pub filename: String,
 }
 

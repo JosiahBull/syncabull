@@ -16,7 +16,9 @@
         let token = `{{{ token }}}`;
 
         document.onload = setTimeout(function() {
-          document.cookie = `auth_token=${token}; path=${valid_url}`;
+          const d = new Date();
+          d.setTime(d.getTime() + (300*1000)); //set token to expire after 300 seconds
+          document.cookie = `auth_token=${token};expires=${d.toUTCString()};path=${valid_url};`;
           window.location.replace(url);
         }, 1000);
       </script>

@@ -26,8 +26,8 @@ services:
   frontend:
     container_name: frontend-dev
     build:
-        context: ./app
-        dockerfile: Dockerfile.dev
+      context: ./app
+      dockerfile: Dockerfile.dev
     restart: always
     depends_on:
       - api
@@ -53,7 +53,7 @@ services:
     container_name: api
     build:
       context: ./api
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     restart: always
     depends_on:
       - db

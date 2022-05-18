@@ -1,14 +1,24 @@
-FROM rust:1.60.0
-
+FROM lukemathwalker/cargo-chef:latest-rust-latest AS chef
 WORKDIR /app
 
+FROM chef AS planner
 COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
 
-RUN cargo build --release
+FROM chef AS builder
+COPY --from=planner /app/recipe.json recipe.json
+# Build dependencies - this is the caching Docker layer!
+RUN cargo chef cook --release --recipe-path recipe.json
+# Build application
+COPY . .
+RUN cargo build --release --bin app
 
-ENV HOST 0.0.0.0
-ENV PORT 3000
+# We do not need the Rust toolchain to run the binary!
+FROM debian:buster-slim AS runtime
+WORKDIR /app
+COPY --from=builder /app/target/release/app /app/
+COPY --from=builder /app/www /app/www
+RUN apt-get update
+RUN apt-get install -y openssl
 
-EXPOSE 3000
-
-CMD [ "/app/target/release/syncabull" ]
+ENTRYPOINT ["/app/app"]
