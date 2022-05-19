@@ -1,3 +1,0 @@
-DROP TABLE IF EXISTS google_auth;
-DROP TABLE IF EXISTS tokens;
-DROP TABLE IF EXISTS users;

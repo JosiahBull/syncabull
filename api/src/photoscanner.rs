@@ -1,13 +1,15 @@
+use std::time::Duration;
+
 use reqwest::Method;
 
 use crate::{
-    json_templates::{GetMediaItems, MediaItem},
+    json_templates::GetMediaItems,
     GoogleAuth,
 };
 
 #[derive(Debug)]
 pub enum ScanningError {
-    NoConnection,
+    // NoConnection,
     InvalidGoogleAuth,
     InternalFailure(String),
 }
@@ -15,7 +17,7 @@ pub enum ScanningError {
 impl std::fmt::Display for ScanningError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
-            ScanningError::NoConnection => write!(f, "No connection to Google Photos"),
+            // ScanningError::NoConnection => write!(f, "No connection to Google Photos"),
             ScanningError::InvalidGoogleAuth => write!(f, "Invalid Google Auth"),
             ScanningError::InternalFailure(ref msg) => write!(f, "Internal failure: {}", msg),
         }
@@ -38,15 +40,15 @@ impl PhotoScanner {
         &self,
         auth: &GoogleAuth,
         max_photos: u8,
-        next_page: Option<String>,
-    ) -> Result<Vec<MediaItem>, ScanningError> {
+        token: Option<String>,
+    ) -> Result<GetMediaItems, ScanningError> {
         if auth.is_expired() {
-            return Err(ScanningError::InvalidGoogleAuth); //TODO: make these automatically refresh
+            return Err(ScanningError::InvalidGoogleAuth)
         }
 
         let mut query = Vec::with_capacity(2);
         query.push(("pageSize", max_photos.to_string()));
-        if let Some(page_token) = next_page {
+        if let Some(page_token) = token {
             query.push(("pageToken", page_token));
         }
 
@@ -58,6 +60,7 @@ impl PhotoScanner {
             .query(&query)
             .header("Content-type", "application/json")
             .header("Authorization", format!("Bearer {}", auth.token))
+            .timeout(Duration::from_millis(self.timeout_ms))
             .send()
             .await
             .unwrap(); //TODO: handle error
@@ -74,6 +77,6 @@ impl PhotoScanner {
             Err(e) => return Err(ScanningError::InternalFailure(format!("{}", e))),
         };
 
-        Ok(body.mediaItems)
+        Ok(body)
     }
 }

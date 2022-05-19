@@ -7,6 +7,12 @@ pub struct QueryData {
     pub code: String,
 }
 
+#[derive(Deserialize)]
+pub struct RequestParameters {
+    pub reload: bool,
+    pub max_count: u8,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct MediaMetadata {
     pub creationTime: String,

@@ -13,11 +13,12 @@ use oauth2::{
     TokenResponse, TokenUrl,
 };
 use reqwest::StatusCode;
+use tokio::sync::RwLock;
 use warp::{reject::Reject, Filter, Rejection, Reply};
 
 use crate::{
     auth::{Credentials, Token},
-    json_templates::QueryData,
+    json_templates::{QueryData, RequestParameters},
     photoscanner::PhotoScanner,
     AppState, GoogleAuth, UserData,
 };
@@ -49,7 +50,7 @@ pub struct WebServerBuilder {
     auth_url: Option<String>,
     token_url: Option<String>,
     domain: Option<String>,
-    state: Option<Arc<AppState>>,
+    state: Option<Arc<RwLock<AppState>>>,
     handlebars: Option<Arc<Handlebars<'static>>>,
     scanner: Option<Arc<PhotoScanner>>,
 }
@@ -90,7 +91,7 @@ impl WebServerBuilder {
         }
     }
 
-    pub fn state<T: Into<Arc<AppState>>>(self, state: T) -> Self {
+    pub fn state<T: Into<Arc<RwLock<AppState>>>>(self, state: T) -> Self {
         WebServerBuilder {
             state: Some(state.into()),
             ..self
@@ -179,7 +180,7 @@ pub struct WebServer {
     pub pkce_code_verifier: PkceCodeVerifier,
     pub csrf_state: CsrfToken,
     pub auth_url: String,
-    pub state: Arc<AppState>,
+    pub state: Arc<RwLock<AppState>>,
     pub handlebars: Arc<Handlebars<'static>>,
     pub scanner: Arc<PhotoScanner>,
 }
@@ -196,21 +197,26 @@ impl WebServer {
     }
 
     pub async fn register(webserver: Arc<WebServer>) -> Result<impl Reply, Infallible> {
+        let mut writer = webserver.state.write().await;
+
         let mut auth: Credentials;
         let mut insecure: String;
         loop {
             (auth, insecure) = Credentials::new();
-            if !webserver.state.users.read().await.contains_key(&auth.id) {
+            if !writer.users.contains_key(&auth.id) {
                 break;
             }
         }
 
-        webserver.state.users.write().await.insert(
+        writer.users.insert(
             auth.id.clone(),
             UserData {
                 hashed_passcode: auth.passcode,
                 tokens: Vec::new(),
                 google_auth: None,
+                initial_scan_complete: false,
+                next_token: None,
+                prev_token: None,
             },
         );
 
@@ -225,7 +231,8 @@ impl WebServer {
         webserver: Arc<WebServer>,
         creds: Credentials,
     ) -> Result<impl Reply, Rejection> {
-        let hashed_passcode = match webserver.state.users.read().await.get(&creds.id) {
+
+        let hashed_passcode = match webserver.state.read().await.users.get(&creds.id) {
             Some(s) => s.hashed_passcode.clone(), //clone requires alloc, but it allows us to drop the rwlock
             None => {
                 return Err(warp::reject::custom(CustomError::new(
@@ -247,16 +254,17 @@ impl WebServer {
         let reply = warp::reply::with_status(warp::reply::json(&token), warp::http::StatusCode::OK);
         webserver
             .state
-            .tokens
             .write()
             .await
+            .tokens
             .insert(token.token.clone(), token);
 
         Ok(reply)
     }
 
-    pub async fn download(server: Arc<WebServer>, token: String) -> Result<impl Reply, Rejection> {
-        let user_id = match server.state.tokens.read().await.get(&token) {
+    pub async fn download(server: Arc<WebServer>, token: String, settings: RequestParameters) -> Result<impl Reply, Rejection> {
+        let reader = server.state.read().await;
+        let user_id = match reader.tokens.get(&token) {
             Some(t) => t.id.clone(),
             None => {
                 return Err(warp::reject::custom(CustomError::new(
@@ -266,8 +274,16 @@ impl WebServer {
             }
         };
 
-        let google_token = match server.state.users.read().await.get(&user_id) {
-            Some(u) => u.google_auth.clone(),
+        let token;
+        let google_token;
+        match reader.users.get(&user_id) {
+            Some(u) => {
+                token = match settings.reload {
+                    true => u.prev_token.clone(),
+                    false => u.next_token.clone(),
+                };
+                google_token = u.google_auth.clone();
+            },
             None => {
                 return Err(warp::reject::custom(CustomError::new(
                     String::from("invalid user"),
@@ -276,7 +292,7 @@ impl WebServer {
             }
         };
 
-        let google_token = match google_token {
+        let mut google_token = match google_token {
             Some(t) => t,
             None => {
                 return Err(warp::reject::custom(CustomError::new(
@@ -286,9 +302,32 @@ impl WebServer {
             }
         };
 
-        let scanner = server.scanner.clone();
+        if google_token.is_expired() {
+            //refresh token
+            let token_server = server.clone();
+            let refresh_token = oauth2::RefreshToken::new(google_token.refresh_token.clone());
+            let new_token = tokio::task::spawn_blocking(move || {
+                token_server.client
+                    .exchange_refresh_token(&refresh_token)
+                    .request(http_client)
+            }).await.unwrap().unwrap();
 
-        let res = match scanner.scan(&google_token, 50, None).await {
+            let new_token = GoogleAuth {
+                token: new_token.access_token().secret().to_string(),
+                token_expiry_sec_epoch: SystemTime::now()
+                    .checked_add(Duration::from_secs(
+                        new_token.expires_in().unwrap().as_secs() - 10, //lose 10 seconds, just in case
+                    ))
+                    .unwrap(),
+                refresh_token: google_token.refresh_token,
+            };
+
+            let mut writer = server.state.write().await;
+            writer.users.get_mut(&user_id).unwrap().google_auth = Some(new_token.clone());
+            google_token = new_token;
+        }
+
+        let res = match server.scanner.scan(&google_token, settings.max_count, token).await {
             Ok(r) => r,
             Err(e) => {
                 return Err(warp::reject::custom(CustomError::new(
@@ -298,7 +337,12 @@ impl WebServer {
             }
         };
 
-        let reply = warp::reply::with_status(warp::reply::json(&res), warp::http::StatusCode::OK);
+        let mut writer = server.state.write().await;
+        let mut user = writer.users.get_mut(&user_id).unwrap();
+        user.prev_token = user.next_token.clone();
+        user.next_token = res.nextPageToken;
+
+        let reply = warp::reply::with_status(warp::reply::json(&res.mediaItems), warp::http::StatusCode::OK);
 
         Ok(reply)
     }
@@ -307,7 +351,7 @@ impl WebServer {
         server: Arc<WebServer>,
         token: String,
     ) -> Result<impl Reply, Rejection> {
-        let user_id = match server.state.tokens.read().await.get(&token) {
+        let user_id = match server.state.read().await.tokens.get(&token) {
             Some(s) => s.id.clone(),
             None => {
                 return Err(warp::reject::custom(CustomError::new(
@@ -322,9 +366,9 @@ impl WebServer {
         let reply = format!("{}/api/1/auth/{}", server.domain, token.token);
         server
             .state
-            .auth_keys
             .write()
             .await
+            .auth_keys
             .insert(token.token.clone(), token);
 
         Ok(reply)
@@ -337,9 +381,9 @@ impl WebServer {
         //validate auth_cookie still exists
         if !server
             .state
-            .auth_keys
             .read()
             .await
+            .auth_keys
             .contains_key(&auth_cookie)
         {
             return Err(warp::reject::custom(CustomError::new(
@@ -410,9 +454,9 @@ impl WebServer {
 
         server
             .state
-            .unclaimed_auth_tokens
             .write()
             .await
+            .unclaimed_auth_tokens
             .insert(token.token, google_token);
 
         Ok(warp::reply::html(body))
@@ -424,9 +468,11 @@ impl WebServer {
     ) -> Result<impl Reply, Rejection> {
         // This endpoint is used to validate and finalise a login
 
+        let mut writer = server.state.write().await;
+
         //check that the provided cookie is valid
         let unauth_user = data.id;
-        let user = match server.state.auth_keys.write().await.remove(&unauth_user) {
+        let user = match writer.auth_keys.remove(&unauth_user) {
             Some(s) => s,
             None => {
                 return Err(warp::reject::custom(CustomError::new(
@@ -438,11 +484,8 @@ impl WebServer {
 
         //validate there is an unclaimed login
         let unclaimed_token = data.token;
-        let unclaimed_login = match server
-            .state
+        let unclaimed_login = match writer
             .unclaimed_auth_tokens
-            .write()
-            .await
             .remove(&unclaimed_token)
         {
             Some(s) => s,
@@ -455,7 +498,7 @@ impl WebServer {
         };
 
         //login this user
-        match server.state.users.write().await.get_mut(&user.id) {
+        match writer.users.get_mut(&user.id) {
             Some(s) => s.google_auth = Some(unclaimed_login),
             None => {
                 return Err(warp::reject::custom(CustomError::new(
@@ -479,7 +522,7 @@ impl WebServer {
         webserver: Arc<WebServer>,
         token: String,
     ) -> Result<impl Reply, Rejection> {
-        let user_id = match webserver.state.tokens.read().await.get(&token) {
+        let user_id = match webserver.state.read().await.tokens.get(&token) {
             Some(t) => t.id.clone(),
             None => {
                 return Err(warp::reject::custom(CustomError::new(
@@ -489,7 +532,9 @@ impl WebServer {
             }
         };
 
-        let user = match webserver.state.users.write().await.remove(&user_id) {
+        let mut writer = webserver.state.write().await;
+
+        let user = match writer.users.remove(&user_id) {
             Some(u) => u,
             None => {
                 return Err(warp::reject::custom(CustomError::new(
@@ -501,9 +546,8 @@ impl WebServer {
 
         // remove all tokens for this user
         if !user.tokens.is_empty() {
-            let mut writer = webserver.state.tokens.write().await;
             for token in user.tokens {
-                writer.remove(&token);
+                writer.tokens.remove(&token);
             }
         }
 
@@ -536,6 +580,7 @@ impl WebServer {
             .and(warp::path::end())
             .and(with(webserver.clone()))
             .and(warp::header::header::<String>("authorisation"))
+            .and(warp::query::<RequestParameters>())
             .and_then(WebServer::download)
             .recover(handle_custom_error);
 
