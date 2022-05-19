@@ -55,16 +55,10 @@ services:
       context: ./api
       dockerfile: Dockerfile.dev
     restart: always
-    depends_on:
-      - db
+
     environment:
       - PORT=3000
       - HOST=0.0.0.0
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_NAME=syncabull
-      - DB_USER=syncabull
-      - DB_PASS=syncabull
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - BROWSER_BASE_URL=http://${APP_HOST:-localhost}:${APP_PORT:-3000}
@@ -78,18 +72,3 @@ services:
       - traefik.http.routers.apiTLS.entrypoints=web
       - traefik.http.routers.apiTLS.middlewares=security-headers@file, api-headers@file
       - traefik.http.routers.apiTLS.tls=true
-
-  db:
-    container_name: db
-    image: postgres:alpine
-    restart: always
-    environment:
-      - POSTGRES_DB=syncabull
-      - POSTGRES_USER=syncabull
-      - POSTGRES_PASSWORD=syncabull
-    volumes:
-      - syncabull-dev-pgdata:/var/lib/postgresql/data
-
-volumes:
-  syncabull-dev-pgdata:
-    external: true

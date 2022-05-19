@@ -53,21 +53,13 @@ services:
       - traefik.http.routers.frontend.rule=Host(`${DOMAIN}`)
       - traefik.http.routers.frontend.entrypoints=websecure
       - traefik.http.routers.frontend.middlewares=security-headers@file
-
   api:
     container_name: api
     build: ./api
     restart: always
-    depends_on:
-      - db
     environment:
       - PORT=3000
       - HOST=0.0.0.0
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_NAME=syncabull
-      - DB_USER=syncabull
-      - DB_PASS=${DB_PASS}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - BROWSER_BASE_URL=https://${DOMAIN}
@@ -76,18 +68,3 @@ services:
       - traefik.http.routers.api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api`)
       - traefik.http.routers.api.entrypoints=websecure
       - traefik.http.routers.api.middlewares=security-headers@file, api-headers@file
-
-  db:
-    container_name: db
-    image: postgres:alpine
-    restart: always
-    environment:
-      - POSTGRES_DB=syncabull
-      - POSTGRES_USER=syncabull
-      - POSTGRES_PASSWORD=${DB_PASS}
-    volumes:
-      - syncabull-pgdata:/var/lib/postgresql/data
-
-volumes:
-  syncabull-pgdata:
-    external: true
