@@ -97,8 +97,4 @@ table! {
 joinable!(google_auth -> users (user_id));
 joinable!(tokens -> users (user_id));
 
-allow_tables_to_appear_in_same_query!(
-    google_auth,
-    tokens,
-    users,
-);
+allow_tables_to_appear_in_same_query!(google_auth, tokens, users,);

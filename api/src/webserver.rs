@@ -471,10 +471,7 @@ impl WebServer {
         ))
     }
 
-    pub async fn login_check(
-        _: Arc<WebServer>,
-        _: String,
-    ) -> Result<impl Reply, Infallible> {
+    pub async fn login_check(_: Arc<WebServer>, _: String) -> Result<impl Reply, Infallible> {
         Ok(String::from("not implemented"))
     }
 

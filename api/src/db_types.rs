@@ -1,16 +1,26 @@
 use crate::schema::*;
 use std::time::SystemTime;
 
-#[derive(Debug, QueryableByName, Insertable)]
+#[derive(Debug, Queryable, QueryableByName)]
 #[table_name = "google_auth"]
 pub struct GoogleAuthDB {
+    pub id: i32,
     pub user_id: String,
     pub token: String,
     pub token_expiry_sec_epoch: SystemTime,
     pub refresh_token: String,
 }
 
-#[derive(Debug, QueryableByName)]
+#[derive(Debug, Insertable)]
+#[table_name = "google_auth"]
+pub struct NewGoogleAuth {
+    pub user_id: String,
+    pub token: String,
+    pub token_expiry_sec_epoch: SystemTime,
+    pub refresh_token: String,
+}
+
+#[derive(Debug, Queryable, QueryableByName)]
 #[table_name = "tokens"]
 pub struct TokenDB {
     pub id: i32,
@@ -27,7 +37,7 @@ pub struct NewToken {
     pub expiry: SystemTime,
 }
 
-#[derive(Debug, QueryableByName, Insertable)]
+#[derive(Debug, Queryable, QueryableByName, Insertable)]
 #[table_name = "users"]
 pub struct UserDB {
     pub id: String,

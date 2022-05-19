@@ -1,4 +1,4 @@
-use std::time::{SystemTime, Duration};
+use std::time::{Duration, SystemTime};
 
 use rand::{distributions::Alphanumeric, Rng};
 
@@ -65,7 +65,9 @@ impl Token {
                 .take(32)
                 .map(char::from)
                 .collect(),
-            expiry: SystemTime::now().checked_add(Duration::from_secs(3600)).unwrap(),
+            expiry: SystemTime::now()
+                .checked_add(Duration::from_secs(3600))
+                .unwrap(),
         }
     }
 

@@ -2,18 +2,15 @@
 
 use crate::auth::Token;
 use crate::db_types::*;
-use crate::schema::{google_auth, users, tokens};
+use crate::schema::{google_auth, tokens, users};
 use async_trait::async_trait;
 use diesel::QueryDsl;
 use diesel::{
     r2d2::{ConnectionManager, Pool},
-    PgConnection, RunQueryDsl, OptionalExtension
+    ExpressionMethods, OptionalExtension, PgConnection, RunQueryDsl,
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    net::Ipv4Addr,
-    time::SystemTime,
-};
+use std::{net::Ipv4Addr, time::SystemTime};
 
 type PooledPg = Pool<ConnectionManager<PgConnection>>;
 
@@ -49,7 +46,7 @@ pub struct DatabaseInformation {
 }
 
 #[async_trait]
-pub trait DatabaseMethods<Id, Item, Error> {
+pub trait DatabaseMethods<Id, Item, Error: std::error::Error> {
     /// create a new database
     async fn new(info: DatabaseInformation) -> Result<Self, Error>
     where
@@ -107,22 +104,22 @@ impl DatabaseMethods<String, (UserData, Vec<Token>), DatabaseError> for Database
             crt: SystemTime::now(),
         };
 
-        let tokens: Vec<NewToken> = tokens.into_iter().map(|token| {
-            NewToken {
+        let tokens: Vec<NewToken> = tokens
+            .into_iter()
+            .map(|token| NewToken {
                 user_id: token.id,
                 token: token.token,
                 expiry: token.expiry,
-            }
-        }).collect();
+            })
+            .collect();
 
         let google_auth = match user_data.google_auth {
-            Some(auth) =>
-                Some(GoogleAuthDB {
-                    user_id: id,
-                    token: auth.token,
-                    token_expiry_sec_epoch: auth.token_expiry_sec_epoch,
-                    refresh_token: auth.refresh_token,
-                }),
+            Some(auth) => Some(NewGoogleAuth {
+                user_id: id,
+                token: auth.token,
+                token_expiry_sec_epoch: auth.token_expiry_sec_epoch,
+                refresh_token: auth.refresh_token,
+            }),
             None => None,
         };
 
@@ -145,29 +142,92 @@ impl DatabaseMethods<String, (UserData, Vec<Token>), DatabaseError> for Database
                     .execute(&con)
                     .expect("Failed to insert google auth");
             }
-
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
 
         //TODO: check for existing users...?
         Ok(None)
     }
 
     async fn get(&mut self, id: &String) -> Result<Option<(UserData, Vec<Token>)>, DatabaseError> {
-        // let pool = self.pool.clone();
-        // let result = tokio::task::spawn_blocking(move || {
-        //     let con = pool.get().expect("Failed to get connection from pool");
-        //     let user: Option<UserDB> = users::table
-        //         .find::<UserDB>(id)
-        //         .execute(&con)
-        //         .optional()
-        //         .expect("Failed to get user");
-        // }).await.unwrap();
+        let id = id.clone();
+        let pool = self.pool.clone();
+        let result: Result<Option<(UserData, Vec<Token>)>, DatabaseError> =
+            tokio::task::spawn_blocking(move || {
+                let con = pool.get().expect("Failed to get connection from pool");
 
-        todo!()
+                let user: Option<UserDB> = users::table
+                    .filter(users::id.eq(&id))
+                    .first(&con)
+                    .optional()
+                    .expect("Failed to get user");
+
+                let user = match user {
+                    Some(user) => user,
+                    None => return Ok(None),
+                };
+
+                let google_auth: Option<GoogleAuthDB> = google_auth::table
+                    .filter(google_auth::user_id.eq(&id))
+                    .first(&con)
+                    .optional()
+                    .expect("Failed to get google auth");
+
+                let google_auth: Option<GoogleAuth> = match google_auth {
+                    Some(auth) => Some(GoogleAuth {
+                        token: auth.token,
+                        token_expiry_sec_epoch: auth.token_expiry_sec_epoch,
+                        refresh_token: auth.refresh_token,
+                    }),
+                    None => None,
+                };
+
+                let tokens: Option<Vec<TokenDB>> = tokens::table
+                    .filter(tokens::user_id.eq(&id))
+                    .load(&con)
+                    .optional()
+                    .expect("Failed to get tokens");
+
+                let tokens = match tokens {
+                    Some(tokens) => tokens
+                        .into_iter()
+                        .map(|token| Token {
+                            id: token.user_id,
+                            token: token.token,
+                            expiry: token.expiry,
+                        })
+                        .collect(),
+                    None => Vec::new(),
+                };
+
+                let user: UserData = UserData {
+                    hashed_passcode: user.hashed_passcode,
+                    google_auth,
+                    tokens: tokens.iter().map(|x| x.token.clone()).collect(),
+                };
+
+                Ok(Some((user, tokens)))
+            })
+            .await
+            .unwrap();
+
+        result
     }
 
     async fn delete(&mut self, id: &String) -> Result<(), DatabaseError> {
-        todo!()
+        let id = id.clone();
+        let pool = self.pool.clone();
+        tokio::task::spawn_blocking(move || {
+            let con = pool.get().expect("Failed to get connection from pool");
+            diesel::delete(users::table.find(id))
+                .execute(&con)
+                .expect("Failed to delete user");
+        })
+        .await
+        .unwrap();
+
+        Ok(())
     }
 }
 

@@ -10,17 +10,14 @@ mod webserver;
 extern crate diesel;
 
 use auth::Token;
-use database::{GoogleAuth, UserData};
+use database::{Database, GoogleAuth, UserData};
+use webserver::WebServer;
+
 use futures::future::join_all;
 use handlebars::Handlebars;
 use photoscanner::PhotoScanner;
-use std::{
-    collections::HashMap,
-    env,
-    sync::Arc,
-};
+use std::{collections::HashMap, env, sync::Arc};
 use tokio::sync::RwLock;
-use webserver::WebServer;
 
 #[derive(Debug, Default)]
 pub struct AppState {
@@ -35,6 +32,15 @@ async fn main() {
     println!("Loading api...");
     let state = Arc::new(AppState::default());
 
+    // This task handles interactions with the database, and is entirely transparent to the rest of the api
+    let database_state = state.clone();
+    let database_handle = tokio::task::spawn(async move {});
+
+    // This is a cleaner task which looks for expired tokens, logins, etc and removes them automatically
+    let token_cleaner_state = state.clone();
+    let token_cleaner_handle = tokio::task::spawn(async move {});
+
+    // This task handles webserver requests
     let webserver_state = state.clone();
     let webserver_handle = tokio::task::spawn(async move {
         println!("creating scanner");
@@ -64,8 +70,5 @@ async fn main() {
             .await;
     });
 
-    //TODO: write a cleaner function
-    // which will loop through and remove auth keys and expired tokens
-
-    join_all([webserver_handle]).await;
+    join_all([webserver_handle, database_handle, token_cleaner_handle]).await;
 }
