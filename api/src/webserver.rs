@@ -654,7 +654,7 @@ impl WebServer {
         // every route needs webserver, so lets do that here
         // routes that require authorisation should be done here - avoids accidentally not authorising a route
         // routes shoudl be authorised and rejected here *not* inside of the functions
-        let routes = warp::any()
+        let api_1 = warp::any()
             .and(warp::path("api"))
             .and(warp::path("1"))
             .and(
@@ -667,8 +667,11 @@ impl WebServer {
                     .or(auth_token_completion)
                     .or(login_check)
                     .or(delete_data),
-            )
-            .or(catcher);
+            );
+
+        let routes = warp::any().and(api_1.or(catcher));
+
+        println!("binding to : {}:{}", std::env::var("HOST").expect("HOST not set"), std::env::var("PORT").expect("PORT not set"));
 
         warp::serve(routes)
             .run((

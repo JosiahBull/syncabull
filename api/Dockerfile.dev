@@ -16,7 +16,7 @@ RUN cargo build --bin app
 # We do not need the Rust toolchain to run the binary!
 FROM debian:buster-slim AS runtime
 WORKDIR /app
-COPY --from=builder /app/target/release/app /app/
+COPY --from=builder /app/target/debug/app /app/
 COPY --from=builder /app/www /app/www
 RUN apt-get update
 RUN apt-get install -y openssl

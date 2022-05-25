@@ -15,7 +15,7 @@ services:
       - --entrypoints.web.address=:80
       
     ports:
-      - "${APP_PORT:-3000}:80"
+      - 127.0.0.1:${APP_PORT:-3000}:80
       - 127.0.0.1:9091:8080
 
     volumes:
@@ -34,6 +34,7 @@ services:
     environment:
       - PORT=3000
       - HOST=0.0.0.0
+      - BASE_URL=http://api:3000/
       - BROWSER_BASE_URL=http://${APP_HOST:-localhost}:${APP_PORT:-3000}
     labels:
       - traefik.enable=true
@@ -55,13 +56,14 @@ services:
       context: ./api
       dockerfile: Dockerfile.dev
     restart: always
-
     environment:
       - PORT=3000
       - HOST=0.0.0.0
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - BROWSER_BASE_URL=http://${APP_HOST:-localhost}:${APP_PORT:-3000}
+    ports:
+      - 80:3000
     labels:
       - traefik.enable=true
       - traefik.http.routers.api.rule=Host(`${APP_HOST:-localhost}`) && PathPrefix(`/api`)

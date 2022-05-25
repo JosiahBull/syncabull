@@ -1,6 +1,8 @@
 /api/target
 /api/store.json
 
+/client/target
+
 # Created by .ignore support plugin (hsz.mobi)
 ### Node template
 # Logs
