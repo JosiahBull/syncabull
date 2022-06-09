@@ -1,14 +1,18 @@
-mod media;
 mod json_templates;
+mod media;
 mod webserver;
 
-use std::{path::PathBuf, sync::Arc, process::exit, time::Duration, collections::VecDeque};
+use std::{collections::VecDeque, path::PathBuf, process::exit, sync::Arc, time::Duration};
 
 use clap::{Parser, Subcommand};
 use futures::future::join_all;
-use log::{info, error};
-use serde::{Serialize, Deserialize};
-use tokio::{sync::{oneshot, RwLock}, select, time::{timeout_at, Instant}};
+use log::{error, info, warn};
+use serde::{Deserialize, Serialize};
+use tokio::{
+    select,
+    sync::{oneshot, RwLock},
+    time::{timeout_at, Instant},
+};
 
 use crate::json_templates::MediaItem;
 
@@ -27,8 +31,23 @@ struct Config {
     local_id: Option<String>,
     /// the passcode provided by the remote server
     local_passcode: Option<String>,
+
+    auth_code: Option<String>,
     /// the address of the remote server
     webserver_address: String,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            store_path: PathBuf::from("./test/"),
+            authenticated: false,
+            local_id: None,
+            local_passcode: None,
+            auth_code: None,
+            webserver_address: String::from("http://localhost:8000/api/1"),
+        }
+    }
 }
 
 #[derive(Debug, Parser)]
@@ -39,20 +58,26 @@ struct Args {
 }
 
 #[derive(Debug, Subcommand)]
-enum SubCommand {
-
-}
-
+enum SubCommand {}
 
 #[tokio::main]
 async fn main() {
     pretty_env_logger::init();
 
+    info!("starting");
+
     let data_path = "./config/data";
-    let config = tokio::fs::read(data_path).await.unwrap();
-    let mut config: Config = bincode::deserialize(&config).unwrap();
+    let mut config = match tokio::fs::read(data_path).await {
+        Ok(d) => bincode::deserialize(&d).unwrap(),
+        Err(e) => {
+            warn!("unable to read configuration from disk, falling back to defaults {}", e);
+            Config::default()
+        }
+    };
 
     if config.local_id.is_none() {
+        info!("client is not registered, registering with api...");
+
         let (id, passcode) = match media::register(&config).await {
             Ok(f) => f,
             Err(e) => {
@@ -60,11 +85,34 @@ async fn main() {
                 exit(1);
             }
         };
+
+        info!("id: {}", id);
+        info!("pass: {}", passcode);
+
         config.local_id = Some(id);
         config.local_passcode = Some(passcode);
+
+        info!("success!");
     }
 
+    info!("logging into syncabull services");
+    let auth_code = match media::login(&config).await {
+        Ok(c) => c,
+        Err(e) => {
+            error!("unable to log into syncabull services {}", e);
+            exit(1);
+        }
+    };
+
+    info!("auth code: {}", auth_code);
+
+    config.auth_code = Some(auth_code);
+
+    info!("succesfully logged into syncabull");
+
     if !config.authenticated {
+        info!("client is not authenticated, getting authentication url now.");
+
         let auth_url = match media::get_auth_url(&config).await {
             Ok(f) => f,
             Err(e) => {
@@ -73,7 +121,10 @@ async fn main() {
             }
         };
 
-        info!("please visit {} and complete authentication within 120 seconds", auth_url);
+        info!(
+            "please visit {} and complete authentication within 120 seconds",
+            auth_url
+        );
 
         // wait for the user to authenticate
         if let Err(e) = media::await_user_authentication(&config).await {
@@ -82,13 +133,16 @@ async fn main() {
         } else {
             config.authenticated = true;
         }
+
+        info!("user authentication successful");
     }
 
     let config = Arc::new(config);
 
     //Spawn webserver
+    info!("spawning webserver");
     let (webserver_os, mut ws_rx) = oneshot::channel();
-    let webserver_config = config.clone();
+    let webserver_config = Arc::clone(&config);
     let webserver = tokio::task::spawn(async move {
         loop {
             select! {
@@ -102,8 +156,9 @@ async fn main() {
     });
 
     //Spawn media downloader
+    info!("spawning media downloader");
     let (media_os, mut md_rx) = oneshot::channel();
-    let media_config = config.clone();
+    let media_config = Arc::clone(&config);
     let media_downloader = tokio::task::spawn(async move {
         let mut download_queue: VecDeque<MediaItem> = VecDeque::with_capacity(100);
 
@@ -117,17 +172,22 @@ async fn main() {
                     break;
                 }
 
-                //XXX: introduce some sort of failure mechanism, if a download is continually failing
-                data = media::download_item(&media_config, &download_queue[0]), if !download_queue.is_empty() => {
+                //TODO: allow re-calling the endpoint to re-get some of the files
+
+                //XXX: introduce some sort of failure mechanism, if a download is continually failing (*e.g. more than twice)
+                // an example is an internet connection which is too slow to download a given file in time.
+                // we should also introduce checks for out of space errors, etc
+                data = media::download_item(&media_config, &download_queue[0], media_config.store_path.join(format!("{}.{}", &download_queue[0].id, &download_queue[0].filename))), if !download_queue.is_empty() => {
                     if let Err(e) = data {
-                        error!("failed to download media item");
+                        error!("failed to download media item {}", e);
                         //move item to back of queue
                         let item = download_queue.pop_front().unwrap();
                         download_queue.push_back(item);
+                        return;
                     }
 
-                    // let data = data.unwrap();
-                    // tokio::fs::write("", data).await;
+                    //XXX: we do actually want to the store the information from the api alongside the files
+
                     download_queue.pop_front();
                 }
 
@@ -149,12 +209,22 @@ async fn main() {
 
     info!("Ctrl-C recieved, shutting down");
 
-    media_os.send(());
-    webserver_os.send(());
+    media_os
+        .send(())
+        .expect("able to send shutdown to media_os");
+    webserver_os
+        .send(())
+        .expect("able to send shutdown to webserver_os");
 
-    if let Err(_) = timeout_at(Instant::now() + Duration::from_secs(SHUTDOWN_TIMEOUT_SECONDS), join_all(vec![webserver, media_downloader])).await {
+    if let Err(_) = timeout_at(
+        Instant::now() + Duration::from_secs(SHUTDOWN_TIMEOUT_SECONDS),
+        join_all(vec![webserver, media_downloader]),
+    )
+    .await
+    {
         error!("Failed to shutdown gracefully, force quitting");
-        webserver.abort();
-        media_downloader.abort();
+        exit(1);
     }
+
+    exit(0);
 }

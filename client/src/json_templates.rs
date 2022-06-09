@@ -1,6 +1,10 @@
 #![allow(non_snake_case)]
 
+use std::time::SystemTime;
+
 use serde::{Deserialize, Serialize};
+
+use crate::Id;
 
 #[derive(Serialize, Deserialize)]
 pub struct MediaMetadata {
@@ -9,6 +13,13 @@ pub struct MediaMetadata {
     pub height: String,
     pub photo: Option<Photo>,
     pub video: Option<Video>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Token {
+    pub id: Id,
+    pub token: String,
+    pub expiry: SystemTime,
 }
 
 #[derive(Serialize, Deserialize)]
