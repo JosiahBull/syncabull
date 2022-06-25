@@ -31,8 +31,6 @@ struct Config {
     local_id: Option<String>,
     /// the passcode provided by the remote server
     local_passcode: Option<String>,
-
-    auth_code: Option<String>,
     /// the address of the remote server
     webserver_address: String,
 }
@@ -44,8 +42,7 @@ impl Default for Config {
             authenticated: false,
             local_id: None,
             local_passcode: None,
-            auth_code: None,
-            webserver_address: String::from("http://localhost:8000/api/1"),
+            webserver_address: String::from("http://localhost:3000/api/1"),
         }
     }
 }
@@ -95,20 +92,7 @@ async fn main() {
         info!("success!");
     }
 
-    info!("logging into syncabull services");
-    let auth_code = match media::login(&config).await {
-        Ok(c) => c,
-        Err(e) => {
-            error!("unable to log into syncabull services {}", e);
-            exit(1);
-        }
-    };
-
-    info!("auth code: {}", auth_code);
-
-    config.auth_code = Some(auth_code);
-
-    info!("succesfully logged into syncabull");
+    info!("Checking authentication....");
 
     if !config.authenticated {
         info!("client is not authenticated, getting authentication url now.");

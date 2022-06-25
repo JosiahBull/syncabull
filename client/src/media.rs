@@ -33,32 +33,6 @@ pub(crate) async fn register(
     Ok((body.id, body.passcode))
 }
 
-pub (crate) async fn login(
-    config: &Config
-) -> Result<String, Box<dyn std::error::Error + Sync + Send>> {
-    let client = reqwest::Client::new();
-
-    let res = client
-        .post(format!("{}/login", config.webserver_address))
-        .json(&Register {
-            id: config.local_id.clone().unwrap(),
-            passcode: config.local_passcode.clone().unwrap(),
-        })
-        .send()
-        .await?;
-
-    if !res.status().is_success() {
-        return Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "unable to login to api",
-        )));
-    }
-
-    let res: Token = res.json().await?;
-
-    Ok(res.token)
-}
-
 /// connect to the server and request a url to authenticate to, for the user to connect their google account
 pub(crate) async fn get_auth_url(
     config: &Config,
@@ -67,7 +41,7 @@ pub(crate) async fn get_auth_url(
 
     let res = client
         .get(format!("{}/auth_url", config.webserver_address))
-        .header("authorisation", config.auth_code.as_ref().unwrap())
+        .basic_auth(config.local_id.as_ref().unwrap(), config.local_passcode.as_ref())
         .send()
         .await?;
 
@@ -90,7 +64,7 @@ pub(crate) async fn await_user_authentication(
 
     let res = client
         .get(format!("{}/is_logged_in", config.webserver_address))
-        .header("authorisation", config.auth_code.as_ref().unwrap())
+        .basic_auth(config.local_id.as_ref().unwrap(), config.local_passcode.as_ref())
         .timeout(Duration::from_secs(120))
         .send()
         .await?;
@@ -114,7 +88,7 @@ pub(crate) async fn download_item(
 
     let res = client
         .get(&item.baseUrl)
-        // .header(key, value)
+        .basic_auth(config.local_id.as_ref().unwrap(), config.local_passcode.as_ref())
         .send()
         .await?;
 
@@ -138,6 +112,7 @@ pub(crate) async fn get_media_items(
 
     let res = client
         .get(format!("{}/media", config.webserver_address))
+        .basic_auth(config.local_id.as_ref().unwrap(), config.local_passcode.as_ref())
         .send()
         .await?;
 
