@@ -1,8 +1,12 @@
-use std::{time::Duration, path::PathBuf};
-
+use crate::{
+    json_templates::{MediaItem, Token},
+    Config, Id, Passcode,
+};
+use futures::StreamExt;
+use log::info;
 use serde::{Deserialize, Serialize};
-
-use crate::{json_templates::{MediaItem, Token}, Config, Id, Passcode};
+use std::{path::PathBuf, time::Duration};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Register {
@@ -41,7 +45,10 @@ pub(crate) async fn get_auth_url(
 
     let res = client
         .get(format!("{}/auth_url", config.webserver_address))
-        .basic_auth(config.local_id.as_ref().unwrap(), config.local_passcode.as_ref())
+        .basic_auth(
+            config.local_id.as_ref().unwrap(),
+            config.local_passcode.as_ref(),
+        )
         .send()
         .await?;
 
@@ -64,7 +71,10 @@ pub(crate) async fn await_user_authentication(
 
     let res = client
         .get(format!("{}/is_logged_in", config.webserver_address))
-        .basic_auth(config.local_id.as_ref().unwrap(), config.local_passcode.as_ref())
+        .basic_auth(
+            config.local_id.as_ref().unwrap(),
+            config.local_passcode.as_ref(),
+        )
         .timeout(Duration::from_secs(120))
         .send()
         .await?;
@@ -79,40 +89,20 @@ pub(crate) async fn await_user_authentication(
     Ok(())
 }
 
-pub(crate) async fn download_item(
-    config: &Config,
-    item: &MediaItem,
-    save_path: PathBuf,
-) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
-    let client = reqwest::Client::new();
-
-    let res = client
-        .get(&item.baseUrl)
-        .basic_auth(config.local_id.as_ref().unwrap(), config.local_passcode.as_ref())
-        .send()
-        .await?;
-
-    if !res.status().is_success() {
-        return Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "unable to download item",
-        )));
-    }
-
-    //HACK: this reads the entire file into memory, we want to stream it ideally
-    tokio::fs::write(save_path, res.bytes().await.unwrap()).await.unwrap();
-
-    Ok(())
-}
-
 pub(crate) async fn get_media_items(
     config: &Config,
 ) -> Result<Vec<MediaItem>, Box<dyn std::error::Error + Sync + Send>> {
     let client = reqwest::Client::new();
 
     let res = client
-        .get(format!("{}/media", config.webserver_address))
-        .basic_auth(config.local_id.as_ref().unwrap(), config.local_passcode.as_ref())
+        .get(format!(
+            "{}/download?reload=false&max_count=20",
+            config.webserver_address
+        ))
+        .basic_auth(
+            config.local_id.as_ref().unwrap(),
+            config.local_passcode.as_ref(),
+        )
         .send()
         .await?;
 
@@ -125,4 +115,57 @@ pub(crate) async fn get_media_items(
 
     let body = res.json().await?;
     Ok(body)
+}
+
+pub(crate) async fn download_item(
+    config: &Config,
+    item: &MediaItem,
+) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    //TODO: check for file already existing BEFORE beginning download on it, that way if a download fails we'll know.
+    let client = reqwest::Client::new();
+
+    let file_name = format!("{}.....{}", &item.id, &item.filename);
+
+    let param = match item.mimeType {
+        Some(ref mime_type) if mime_type.contains("video") => "dv",
+        _ => "d"
+    };
+
+    let url = format!("{}={}", &item.baseUrl, param);
+
+    let res = client.get(url).send().await?;
+
+    if !res.status().is_success() {
+        return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "unable to download item",
+        )));
+    }
+
+    let tmp_dir = tempfile::Builder::new().prefix("syncabull-").tempdir()?;
+    let mut dest = {
+        let fname = tmp_dir.path().join(&file_name);
+        info!("will be located under: '{:?}'", fname);
+        tokio::fs::File::create(fname).await?
+    };
+
+    let mut content = res.bytes_stream();
+
+    while let Some(bytes) = content.next().await {
+        match bytes {
+            Ok(mut bytes) => {
+                dest.write_buf(&mut bytes).await?;
+            }
+            Err(e) => return Err(Box::new(e)),
+        }
+    }
+
+    //TODO: set this up to attempt a rename, then fallback to copy.
+    tokio::fs::copy(
+        tmp_dir.path().join(&file_name),
+        config.store_path.join(&file_name),
+    )
+    .await?;
+
+    Ok(())
 }

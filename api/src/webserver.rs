@@ -10,10 +10,10 @@ use handlebars::Handlebars;
 use oauth2::{
     basic::BasicClient, reqwest::http_client, AuthUrl, AuthorizationCode, ClientId, ClientSecret,
     CsrfToken, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RevocationUrl, Scope,
-    TokenResponse, TokenUrl,
+    TokenResponse, TokenUrl, http::{HeaderMap, HeaderValue},
 };
 use reqwest::StatusCode;
-use tokio::sync::RwLock;
+use tokio::{sync::RwLock, time::error::Elapsed};
 use warp::{reject::Reject, Filter, Rejection, Reply};
 
 use crate::{
@@ -191,9 +191,92 @@ fn with<T: Send + Sync>(
     warp::any().map(move || data.clone())
 }
 
+pub fn with_auth(server: Arc<WebServer>) -> impl Filter<Extract = (String,), Error = Rejection> + Clone {
+    warp::header::value("authorization")
+        .and(with(server))
+        .and_then(WebServer::login)
+}
+
 impl WebServer {
     pub fn builder() -> WebServerBuilder {
         WebServerBuilder::default()
+    }
+
+    async fn login(token: HeaderValue, webserver: Arc<WebServer>) -> Result<String, Rejection> {
+        let token = token.to_str().map_err(|e| {
+            CustomError::new(
+                format!("Invalid token: {}", e),
+                StatusCode::BAD_REQUEST,
+            )
+        })?;
+
+        if token.len() < 5 {
+            return Err(warp::reject::custom(CustomError::new(
+                String::from("invalid token"),
+                StatusCode::UNAUTHORIZED,
+            )));
+        }
+
+        let data = base64::decode(&token[6..]).map_err(|e| {
+            CustomError::new(
+                format!("Invalid base64 encoding: {}", e),
+                StatusCode::BAD_REQUEST,
+            )
+        })?;
+
+        let data = String::from_utf8(data).map_err(|e| {
+            CustomError::new(
+                format!("Invalid UTF-8 encoding: {}", e),
+                StatusCode::BAD_REQUEST,
+            )
+        })?;
+
+        if data.matches(":").count() != 1 {
+            return Err(warp::reject::custom(CustomError::new(
+                String::from("Invalid auth string"),
+                StatusCode::BAD_REQUEST,
+            )));
+        }
+
+        let mut split = data.split(":");
+        let username = match split.next() {
+            Some(username) => username.to_string(),
+            None => {
+                return Err(warp::reject::custom(CustomError::new(
+                    String::from("Invalid auth string"),
+                    StatusCode::BAD_REQUEST,
+                )))
+            }
+        };
+
+        let passcode = match split.next() {
+            Some(passcode) => passcode.to_string(),
+            None => {
+                return Err(warp::reject::custom(CustomError::new(
+                    String::from("Invalid auth string"),
+                    StatusCode::BAD_REQUEST,
+                )))
+            }
+        };
+
+        let hashed_passcode = match webserver.state.read().await.users.get(&username) {
+            Some(s) => s.hashed_passcode.clone(), //clone requires alloc, but it allows us to drop the rwlock
+            None => {
+                return Err(warp::reject::custom(CustomError::new(
+                    String::from("invalid login"),
+                    StatusCode::UNAUTHORIZED,
+                )))
+            }
+        };
+
+        if !Credentials::verify_passcode(&passcode, &hashed_passcode) {
+            return Err(warp::reject::custom(CustomError::new(
+                String::from("invalid login"),
+                StatusCode::UNAUTHORIZED,
+            )));
+        }
+
+        Ok(username)
     }
 
     pub async fn register(webserver: Arc<WebServer>) -> Result<impl Reply, Infallible> {
@@ -227,70 +310,32 @@ impl WebServer {
         ))
     }
 
-    pub async fn login(
-        webserver: Arc<WebServer>,
-        creds: Credentials,
+    pub async fn download(
+        server: Arc<WebServer>,
+        settings: RequestParameters,
+        user_id: String,
     ) -> Result<impl Reply, Rejection> {
-
-        let hashed_passcode = match webserver.state.read().await.users.get(&creds.id) {
-            Some(s) => s.hashed_passcode.clone(), //clone requires alloc, but it allows us to drop the rwlock
-            None => {
-                return Err(warp::reject::custom(CustomError::new(
-                    String::from("invalid login"),
-                    StatusCode::UNAUTHORIZED,
-                )))
-            }
-        };
-
-        if !Credentials::verify_passcode(&creds.passcode, &hashed_passcode) {
-            return Err(warp::reject::custom(CustomError::new(
-                String::from("invalid login"),
-                StatusCode::UNAUTHORIZED,
-            )));
-        }
-
-        let token = Token::generate_token(&creds.id);
-
-        let reply = warp::reply::with_status(warp::reply::json(&token), warp::http::StatusCode::OK);
-        webserver
-            .state
-            .write()
-            .await
-            .tokens
-            .insert(token.token.clone(), token);
-
-        Ok(reply)
-    }
-
-    pub async fn download(server: Arc<WebServer>, token: String, settings: RequestParameters) -> Result<impl Reply, Rejection> {
-        let reader = server.state.read().await;
-        let user_id = match reader.tokens.get(&token) {
-            Some(t) => t.id.clone(),
-            None => {
-                return Err(warp::reject::custom(CustomError::new(
-                    String::from("invalid token"),
-                    StatusCode::UNAUTHORIZED,
-                )))
-            }
-        };
 
         let token;
         let google_token;
-        match reader.users.get(&user_id) {
-            Some(u) => {
-                token = match settings.reload {
-                    true => u.prev_token.clone(),
-                    false => u.next_token.clone(),
-                };
-                google_token = u.google_auth.clone();
-            },
-            None => {
-                return Err(warp::reject::custom(CustomError::new(
-                    String::from("invalid user"),
-                    StatusCode::UNAUTHORIZED,
-                )))
-            }
-        };
+        {
+            let reader = server.state.read().await;
+            match reader.users.get(&user_id) {
+                Some(u) => {
+                    token = match settings.reload {
+                        true => u.prev_token.clone(),
+                        false => u.next_token.clone(),
+                    };
+                    google_token = u.google_auth.clone();
+                }
+                None => {
+                    return Err(warp::reject::custom(CustomError::new(
+                        String::from("invalid user"),
+                        StatusCode::UNAUTHORIZED,
+                    )))
+                }
+            };
+        }
 
         let mut google_token = match google_token {
             Some(t) => t,
@@ -307,10 +352,14 @@ impl WebServer {
             let token_server = server.clone();
             let refresh_token = oauth2::RefreshToken::new(google_token.refresh_token.clone());
             let new_token = tokio::task::spawn_blocking(move || {
-                token_server.client
+                token_server
+                    .client
                     .exchange_refresh_token(&refresh_token)
                     .request(http_client)
-            }).await.unwrap().unwrap();
+            })
+            .await
+            .unwrap()
+            .unwrap();
 
             let new_token = GoogleAuth {
                 token: new_token.access_token().secret().to_string(),
@@ -322,12 +371,18 @@ impl WebServer {
                 refresh_token: google_token.refresh_token,
             };
 
-            let mut writer = server.state.write().await;
-            writer.users.get_mut(&user_id).unwrap().google_auth = Some(new_token.clone());
-            google_token = new_token;
+            {
+                let mut writer = server.state.write().await;
+                writer.users.get_mut(&user_id).unwrap().google_auth = Some(new_token.clone());
+                google_token = new_token;
+            }
         }
 
-        let res = match server.scanner.scan(&google_token, settings.max_count, token).await {
+        let res = match server
+            .scanner
+            .scan(&google_token, settings.max_count, token)
+            .await
+        {
             Ok(r) => r,
             Err(e) => {
                 return Err(warp::reject::custom(CustomError::new(
@@ -337,30 +392,23 @@ impl WebServer {
             }
         };
 
-        let mut writer = server.state.write().await;
-        let mut user = writer.users.get_mut(&user_id).unwrap();
-        user.prev_token = user.next_token.clone();
-        user.next_token = res.nextPageToken;
+        {
+            let mut writer = server.state.write().await;
+            let mut user = writer.users.get_mut(&user_id).unwrap();
+            user.prev_token = user.next_token.clone();
+            user.next_token = res.nextPageToken;
+        }
 
-        let reply = warp::reply::with_status(warp::reply::json(&res.mediaItems), warp::http::StatusCode::OK);
+
+        let reply = warp::reply::with_status(
+            warp::reply::json(&res.mediaItems),
+            warp::http::StatusCode::OK,
+        );
 
         Ok(reply)
     }
 
-    pub async fn get_auth_url(
-        server: Arc<WebServer>,
-        token: String,
-    ) -> Result<impl Reply, Rejection> {
-        let user_id = match server.state.read().await.tokens.get(&token) {
-            Some(s) => s.id.clone(),
-            None => {
-                return Err(warp::reject::custom(CustomError::new(
-                    String::from("invalid token"),
-                    StatusCode::UNAUTHORIZED,
-                )))
-            }
-        };
-
+    pub async fn get_auth_url(server: Arc<WebServer>, user_id: String) -> Result<impl Reply, Rejection> {
         let token = Token::generate_token(&user_id);
 
         let reply = format!("{}/api/1/auth/{}", server.domain, token.token);
@@ -467,7 +515,6 @@ impl WebServer {
         data: Token,
     ) -> Result<impl Reply, Rejection> {
         // This endpoint is used to validate and finalise a login
-
         let mut writer = server.state.write().await;
 
         //check that the provided cookie is valid
@@ -484,10 +531,7 @@ impl WebServer {
 
         //validate there is an unclaimed login
         let unclaimed_token = data.token;
-        let unclaimed_login = match writer
-            .unclaimed_auth_tokens
-            .remove(&unclaimed_token)
-        {
+        let unclaimed_login = match writer.unclaimed_auth_tokens.remove(&unclaimed_token) {
             Some(s) => s,
             None => {
                 return Err(warp::reject::custom(CustomError::new(
@@ -514,41 +558,57 @@ impl WebServer {
         ))
     }
 
-    pub async fn login_check(_: Arc<WebServer>, _: String) -> Result<impl Reply, Infallible> {
-        Ok(String::from("not implemented"))
-    }
+    pub async fn login_check(webserver: Arc<WebServer>, user_id: String) -> Result<impl Reply, Rejection> {
+        //XXX move timeout to config option?
 
-    pub async fn delete_data(
-        webserver: Arc<WebServer>,
-        token: String,
-    ) -> Result<impl Reply, Rejection> {
-        let user_id = match webserver.state.read().await.tokens.get(&token) {
-            Some(t) => t.id.clone(),
-            None => {
-                return Err(warp::reject::custom(CustomError::new(
+        let timeout_secs = 200;
+
+        let result: Result<Result<(), Rejection>, Elapsed> = tokio::time::timeout(Duration::from_secs(timeout_secs), async move {
+            loop {
+                let reader = webserver.state.read().await;
+                let user = match reader.users.get(&user_id) {
+                    Some(s) => s,
+                    None => {
+                        return Err(warp::reject::custom(CustomError::new(
+                            String::from("invalid login"),
+                            StatusCode::UNAUTHORIZED,
+                        )))
+                    }
+                };
+
+                if user.google_auth.is_some() {
+                    return Ok(())
+                }
+
+                //sleep before checking again
+                tokio::time::sleep(Duration::from_millis(1000)).await;
+            }
+        }).await;
+
+        match result {
+            Ok(Err(e)) => Err(e),
+            Ok(_) => {
+                Ok(warp::reply::with_status(
+                    warp::reply(),
+                    StatusCode::NO_CONTENT,
+                ))
+            }
+            Err(_) => {
+                Err(warp::reject::custom(CustomError::new(
                     String::from("invalid login"),
                     StatusCode::UNAUTHORIZED,
                 )))
             }
-        };
+        }
+    }
 
+    pub async fn delete_data(webserver: Arc<WebServer>, user_id: String) -> Result<impl Reply, Rejection> {
         let mut writer = webserver.state.write().await;
-
-        let user = match writer.users.remove(&user_id) {
-            Some(u) => u,
-            None => {
-                return Err(warp::reject::custom(CustomError::new(
-                    String::from("invalid user state, token not removed"),
-                    StatusCode::UNAUTHORIZED,
-                )))
-            }
-        };
-
-        // remove all tokens for this user
-        if !user.tokens.is_empty() {
-            for token in user.tokens {
-                writer.tokens.remove(&token);
-            }
+        if writer.users.remove(&user_id).is_none() {
+            return Err(warp::reject::custom(CustomError::new(
+                String::from("invalid user"),
+                StatusCode::UNAUTHORIZED,
+            )));
         }
 
         Ok(warp::reply::with_status("", StatusCode::NO_CONTENT))
@@ -565,22 +625,13 @@ impl WebServer {
             .and_then(WebServer::register)
             .recover(handle_custom_error);
 
-        // log this agent into the api
-        let login = warp::post()
-            .and(warp::path("login"))
-            .and(warp::path::end())
-            .and(with(webserver.clone()))
-            .and(warp::body::json::<Credentials>())
-            .and_then(WebServer::login)
-            .recover(handle_custom_error);
-
         // check for new images to download
         let download = warp::get()
             .and(warp::path("download"))
             .and(warp::path::end())
             .and(with(webserver.clone()))
-            .and(warp::header::header::<String>("authorisation"))
             .and(warp::query::<RequestParameters>())
+            .and(with_auth(webserver.clone()))
             .and_then(WebServer::download)
             .recover(handle_custom_error);
 
@@ -590,13 +641,13 @@ impl WebServer {
             .and(warp::path("auth_url"))
             .and(warp::path::end())
             .and(with(webserver.clone()))
-            .and(warp::header::header::<String>("authorisation"))
+            .and(with_auth(webserver.clone()))
             .and_then(WebServer::get_auth_url)
             .recover(handle_custom_error);
 
         // this endpoint is the beginning of the google login process
         // the url generated by the above links to this endpoint
-        // this endpoint should log a cookie into localstorage, then redirect to google's api
+        // this endpoint should log a cookie into local storage, then redirect to google's api
         // to complete the login process
         let auth = warp::get()
             .and(warp::path("auth"))
@@ -632,7 +683,7 @@ impl WebServer {
             .and(warp::path("is_logged_in"))
             .and(warp::path::end())
             .and(with(webserver.clone()))
-            .and(warp::header::header::<String>("authorisation"))
+            .and(with_auth(webserver.clone()))
             .and_then(WebServer::login_check)
             .recover(handle_custom_error);
 
@@ -641,14 +692,14 @@ impl WebServer {
             .and(warp::path("delete"))
             .and(warp::path::end())
             .and(with(webserver.clone()))
-            .and(warp::header::header::<String>("authorisation"))
+            .and(with_auth(webserver.clone()))
             .and_then(WebServer::delete_data)
             .recover(handle_custom_error);
 
         // General catch-all endpoint if a failure occurs
         let catcher = warp::any()
             .and(warp::path::full())
-            .map(|path| format!("Path {:?} not found", path));
+            .map(|path| warp::reply::with_status(format!("Path {:?} not found", path), StatusCode::NOT_FOUND));
 
         //TODO: refactor this.
         // every route needs webserver, so lets do that here
@@ -659,7 +710,6 @@ impl WebServer {
             .and(warp::path("1"))
             .and(
                 register
-                    .or(login)
                     .or(download)
                     .or(get_auth_url)
                     .or(auth)
@@ -669,9 +719,13 @@ impl WebServer {
                     .or(delete_data),
             );
 
-        let routes = warp::any().and(api_1.or(catcher));
+            let routes = warp::any().and(api_1.or(catcher));
 
-        println!("binding to : {}:{}", std::env::var("HOST").expect("HOST not set"), std::env::var("PORT").expect("PORT not set"));
+        println!(
+            "binding to : {}:{}",
+            std::env::var("HOST").expect("HOST not set"),
+            std::env::var("PORT").expect("PORT not set")
+        );
 
         warp::serve(routes)
             .run((
@@ -685,5 +739,45 @@ impl WebServer {
                     .expect("valid port"),
             ))
             .await;
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::net::Ipv4Addr;
+
+    use warp::{http::HeaderMap, Filter};
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn full_test() {
+        let h = tokio::task::spawn(async move {
+            let routes = warp::any()
+                .and(warp::header::headers_cloned())
+                .map(|headers: HeaderMap| format!("You gave me headers: {:?}", headers));
+
+            warp::serve(routes)
+                .run((
+                    "127.0.0.1".parse::<Ipv4Addr>().expect("valid port"),
+                    "8000".parse().expect("valid port"),
+                ))
+                .await;
+        });
+
+        let mut client = reqwest::Client::new();
+        let res = client
+            .get("http://127.0.0.1:8000/hello")
+            .basic_auth("username", Some("password"))
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+
+        println!("got: {}", res);
+
+        h.abort();
+
+        panic!("incomplete");
     }
 }

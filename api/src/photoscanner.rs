@@ -2,10 +2,7 @@ use std::time::Duration;
 
 use reqwest::Method;
 
-use crate::{
-    json_templates::GetMediaItems,
-    GoogleAuth,
-};
+use crate::{json_templates::GetMediaItems, GoogleAuth};
 
 #[derive(Debug)]
 pub enum ScanningError {
@@ -43,7 +40,7 @@ impl PhotoScanner {
         token: Option<String>,
     ) -> Result<GetMediaItems, ScanningError> {
         if auth.is_expired() {
-            return Err(ScanningError::InvalidGoogleAuth)
+            return Err(ScanningError::InvalidGoogleAuth);
         }
 
         let mut query = Vec::with_capacity(2);

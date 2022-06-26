@@ -4,14 +4,20 @@ mod photoscanner;
 mod webserver;
 
 use auth::Token;
-use serde::{Serialize, Deserialize};
+use photoscanner::PhotoScanner;
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use webserver::WebServer;
-use photoscanner::PhotoScanner;
 
 use futures::future::join_all;
 use handlebars::Handlebars;
-use std::{sync::Arc, env, collections::HashMap, time::{Duration, SystemTime}, path::{PathBuf, self}};
+use std::{
+    collections::HashMap,
+    env,
+    path::{self, PathBuf},
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 const STORE_PATH: &str = "store.json";
 
@@ -44,11 +50,9 @@ pub struct UserData {
     pub prev_token: Option<String>,
 }
 
-
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct AppState {
     users: HashMap<String, UserData>,
-    tokens: HashMap<String, Token>,
     auth_keys: HashMap<String, Token>,
     unclaimed_auth_tokens: HashMap<String, GoogleAuth>,
 }
@@ -82,24 +86,11 @@ async fn main() {
     let database_state = state.clone();
     let database_handle = tokio::task::spawn(async move {
         loop {
-            database_state.read().await.to_disk(path::PathBuf::from(STORE_PATH)).await;
-            tokio::time::sleep(Duration::from_secs(60)).await;
-        }
-    });
-
-    println!("token expiry scanner setup");
-    // This is a cleaner task which looks for expired tokens, logins, etc and removes them automatically
-    let token_cleaner_state = state.clone();
-    let token_cleaner_handle = tokio::task::spawn(async move {
-        loop {
-            let mut state = token_cleaner_state.write().await;
-            for i in 0..state.tokens.len() {
-                if state.tokens.get(&i.to_string()).unwrap().is_expired() {
-                    let t = state.tokens.remove(&i.to_string()).unwrap();
-                    state.users.get_mut(&t.id).unwrap().tokens.retain(|x| x != &t.token);
-                }
-            }
-
+            database_state
+                .read()
+                .await
+                .to_disk(path::PathBuf::from(STORE_PATH))
+                .await;
             tokio::time::sleep(Duration::from_secs(60)).await;
         }
     });
@@ -133,5 +124,5 @@ async fn main() {
     });
 
     println!("server started, waiting for new connections");
-    join_all([webserver_handle, database_handle, token_cleaner_handle]).await;
+    join_all([webserver_handle, database_handle]).await;
 }

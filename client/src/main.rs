@@ -10,7 +10,10 @@ use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use tokio::{
     select,
-    sync::{oneshot, RwLock},
+    sync::{
+        oneshot::{self, error::TryRecvError},
+        RwLock,
+    },
     time::{timeout_at, Instant},
 };
 
@@ -40,8 +43,8 @@ impl Default for Config {
         Self {
             store_path: PathBuf::from("./test/"),
             authenticated: false,
-            local_id: None,
-            local_passcode: None,
+            local_id: Some("2YhkLFWhU05cyMscoEIGrHlwNvybDkil".to_string()),
+            local_passcode: Some("ZWJGjqIObF6iddfmWgoQgHJtY0hljMYw".to_string()),
             webserver_address: String::from("http://localhost:3000/api/1"),
         }
     }
@@ -59,6 +62,17 @@ enum SubCommand {}
 
 #[tokio::main]
 async fn main() {
+    //XXX: Config options for logging, etc.
+
+    //XXX: max retries to download a file?
+    //XXX: max file size to attempt a download of, we should create a .txt file of these to be attempted at a later date.
+    //XXX: perhaps we should setup the api to allow single-file downloads for SUPER large files?
+    //XXX: config option for file storage location
+    //XXX: api rate limits, we need to be aware of them
+    //XXX: shutdown timeouts config
+
+    //XXX: prevent logging from reqwest etc except when absolutely neeeded.
+    //XXX: switch to fern logging?
     pretty_env_logger::init();
 
     info!("starting");
@@ -67,7 +81,10 @@ async fn main() {
     let mut config = match tokio::fs::read(data_path).await {
         Ok(d) => bincode::deserialize(&d).unwrap(),
         Err(e) => {
-            warn!("unable to read configuration from disk, falling back to defaults {}", e);
+            warn!(
+                "unable to read configuration from disk, falling back to defaults {}",
+                e
+            );
             Config::default()
         }
     };
@@ -78,13 +95,13 @@ async fn main() {
         let (id, passcode) = match media::register(&config).await {
             Ok(f) => f,
             Err(e) => {
-                error!("unable to register with api, is it running? {}", e);
+                error!("unable to register with api {}", e);
                 exit(1);
             }
         };
 
-        info!("id: {}", id);
-        info!("pass: {}", passcode);
+        // info!("id: {}", id);
+        // info!("pass: {}", passcode);
 
         config.local_id = Some(id);
         config.local_passcode = Some(passcode);
@@ -134,7 +151,7 @@ async fn main() {
                     info!("Shutting down webserver");
                     break;
                 },
-
+                //TODO
             };
         }
     });
@@ -146,44 +163,53 @@ async fn main() {
     let media_downloader = tokio::task::spawn(async move {
         let mut download_queue: VecDeque<MediaItem> = VecDeque::with_capacity(100);
 
-        loop {
-            select! {
-                biased;
+        //TODO: handle failed media downloads, track fail count, and last request time. If we're > 1hr, remake the request to the api
+        //TODO: if the api is unresponsive, we should practice expoential backoff until it responds.
 
-                _ = &mut md_rx => {
-                    //XXX:
+        loop {
+            match md_rx.try_recv() {
+                Ok(_) => {
                     info!("Shutting down media downloader");
                     break;
                 }
-
-                //TODO: allow re-calling the endpoint to re-get some of the files
-
-                //XXX: introduce some sort of failure mechanism, if a download is continually failing (*e.g. more than twice)
-                // an example is an internet connection which is too slow to download a given file in time.
-                // we should also introduce checks for out of space errors, etc
-                data = media::download_item(&media_config, &download_queue[0], media_config.store_path.join(format!("{}.{}", &download_queue[0].id, &download_queue[0].filename))), if !download_queue.is_empty() => {
-                    if let Err(e) = data {
-                        error!("failed to download media item {}", e);
-                        //move item to back of queue
-                        let item = download_queue.pop_front().unwrap();
-                        download_queue.push_back(item);
-                        return;
-                    }
-
-                    //XXX: we do actually want to the store the information from the api alongside the files
-
-                    download_queue.pop_front();
+                Err(TryRecvError::Closed) => {
+                    error!("media downloader channel closed, shutting down downloader");
+                    break;
                 }
+                _ => {}
+            }
 
-                new_items = media::get_media_items(&media_config), if download_queue.is_empty() => {
-                    match new_items {
-                        Ok(new_items) => download_queue.extend(new_items),
-                        Err(e) => error!("Unable to collect new media items {}", e),
+            if download_queue.is_empty() {
+                let items = match media::get_media_items(&media_config).await {
+                    Ok(i) => i,
+                    Err(e) => {
+                        error!(
+                            "failed to collect media items for download due to error: {}",
+                            e
+                        );
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        continue;
                     }
-                }
+                };
+                download_queue.extend(items);
+            }
 
-                else => {
-                    error!("unable to get media items");
+            if let Some(item) = download_queue.pop_front() {
+                //allow multiple downloads to occur at once, make it configurable.
+                info!("downloading {}", item.baseUrl);
+                match media::download_item(
+                    &media_config,
+                    &item,
+                )
+                .await
+                {
+                    Ok(_) => {
+                        info!("download successful");
+                    }
+                    Err(e) => {
+                        error!("failed to download media: {}", e);
+                        // download_queue.push_back(item);
+                    }
                 }
             }
         }
@@ -193,12 +219,13 @@ async fn main() {
 
     info!("Ctrl-C recieved, shutting down");
 
-    media_os
-        .send(())
-        .expect("able to send shutdown to media_os");
-    webserver_os
-        .send(())
-        .expect("able to send shutdown to webserver_os");
+    if let Err(_) = media_os.send(()) {
+        error!("unable to send shutdown signal to media downloader, it may have crashed");
+    }
+
+    if let Err(_) = webserver_os.send(()) {
+        error!("unable to send shutdown signal to webserver, it may have crashed");
+    }
 
     if let Err(_) = timeout_at(
         Instant::now() + Duration::from_secs(SHUTDOWN_TIMEOUT_SECONDS),

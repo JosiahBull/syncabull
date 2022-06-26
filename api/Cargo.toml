@@ -17,6 +17,7 @@ rand = "0.8.5"
 sha2 = "0.10.2"
 handlebars = "4.2.2"
 async-trait = "0.1.53"
+base64 = "0.13.0"
 
 [[bin]]
 name = "app"
