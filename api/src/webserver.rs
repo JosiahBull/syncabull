@@ -696,10 +696,10 @@ impl WebServer {
             .and_then(WebServer::delete_data)
             .recover(handle_custom_error);
 
-        // General catch-all endpoint if a failure occurs
-        let catcher = warp::any()
-            .and(warp::path::full())
-            .map(|path| warp::reply::with_status(format!("Path {:?} not found", path), StatusCode::NOT_FOUND));
+            // General catch-all endpoint if a failure occurs
+            let catcher = warp::any()
+                .and(warp::path::full())
+                .map(|path| warp::reply::with_status(format!("Path {:?} not found", path), StatusCode::NOT_FOUND));
 
         //TODO: refactor this.
         // every route needs webserver, so lets do that here

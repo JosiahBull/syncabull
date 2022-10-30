@@ -64,4 +64,6 @@ pub struct MediaItem {
     pub mediaMetadata: Option<MediaMetadata>,
     pub contributorInfo: Option<ContributorInfo>,
     pub filename: String,
+    #[serde(default)]
+    pub download_count: u32,
 }
