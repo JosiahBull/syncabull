@@ -1,10 +1,17 @@
 #![allow(non_snake_case)]
 
-use std::time::SystemTime;
-
 use serde::{Deserialize, Serialize};
 
-use crate::Id;
+#[derive(Deserialize)]
+pub struct QueryData {
+    pub code: String,
+}
+
+#[derive(Deserialize)]
+pub struct RequestParameters {
+    pub reload: bool,
+    pub max_count: u8,
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct MediaMetadata {
@@ -13,13 +20,6 @@ pub struct MediaMetadata {
     pub height: String,
     pub photo: Option<Photo>,
     pub video: Option<Video>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Token {
-    pub id: Id,
-    pub token: String,
-    pub expiry: SystemTime,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -64,6 +64,28 @@ pub struct MediaItem {
     pub mediaMetadata: Option<MediaMetadata>,
     pub contributorInfo: Option<ContributorInfo>,
     pub filename: String,
+
     #[serde(default)]
-    pub download_count: u32,
+    pub download_attempts: u32,
+
+    #[serde(default)]
+    pub download_success: bool,
+}
+
+#[derive(Deserialize)]
+pub struct GetMediaItems {
+    pub mediaItems: Vec<MediaItem>,
+    pub nextPageToken: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct GoogleProfile {
+    /// Google ID for user
+    pub sub: String,
+    /// Url to profile picture of user
+    pub picture: String,
+    /// Email address of user
+    pub email: String,
+    /// Whether the email of this user has been verified
+    pub email_verified: bool,
 }

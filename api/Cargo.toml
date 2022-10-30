@@ -39,5 +39,6 @@ oauth2 = "4.2.3"
 # Encoding & Decoding
 serde = { version = "1.0.145", features = ["derive"] }
 serde_json = { version = "1.0.86" }
+shared-libs = { path="../shared-libs" }
 base64 = "0.13.0"
 sha2 = "0.10.6"

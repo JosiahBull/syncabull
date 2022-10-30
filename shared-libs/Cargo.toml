@@ -1,0 +1,15 @@
+[package]
+name = "shared-libs"
+version = "0.1.0"
+edition = "2021"
+authors = ["Josiah Bull"]
+description = "Various shared tools and utilities for syncabull"
+repository = "https://github.com/JosiahBull/syncabull"
+license = "MIT"
+readme = "README.md"
+keywords = ["google", "photos", "backup"]
+categories = ["command-line-utilities"]
+documentation = "https://github.com/JosiahBull/syncabull"
+
+[dependencies]
+serde = { version = "1.0.147", default-features = false, features = ["derive"] }

@@ -1,5 +1,4 @@
 mod auth;
-mod json_templates;
 mod photoscanner;
 mod webserver;
 

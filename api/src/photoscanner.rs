@@ -1,7 +1,8 @@
 use std::time::Duration;
 use reqwest::Method;
+use shared_libs::json_templates::GetMediaItems;
 
-use crate::{json_templates::GetMediaItems, GoogleAuth};
+use crate::GoogleAuth;
 
 #[derive(Debug)]
 pub enum ScanningError {

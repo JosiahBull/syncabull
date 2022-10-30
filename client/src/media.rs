@@ -1,9 +1,9 @@
 use crate::{
-    json_templates::MediaItem,
     Id, Passcode, config::Config,
 };
 use log::{info, error};
 use serde::{Deserialize, Serialize};
+use shared_libs::json_templates::MediaItem;
 use ureq::Agent;
 use std::{time::Duration,fs::File};
 

@@ -2,6 +2,7 @@
 members = [
     "./api/",
     "./client/",
+    "./shared-libs/"
 ]
 
 [profile.production]

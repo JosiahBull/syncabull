@@ -1,9 +1,8 @@
-use std::path::PathBuf;
-use log::warn;
+use std::{path::PathBuf, error::Error, process::exit};
+use log::{info, error};
 use serde::{Deserialize, Serialize};
-use crate::{Id, Passcode};
-
-const DEFAULT_CONFIG_PATH: &str = ".config.toml";
+use ureq::Agent;
+use crate::{Id, Passcode, database::{DbConnection, self}, media};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
@@ -22,71 +21,56 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_file() -> Result<Self, Box<dyn std::error::Error>> {
-        let file = std::fs::read_to_string(DEFAULT_CONFIG_PATH)?;
-        let config: Config = toml::from_str(&file)?;
-        Ok(config)
-    }
+    pub fn load(agent: &Agent, connection: &mut DbConnection) -> Result<Config, Box<dyn Error>> {
+        let mut config = database::load_config(connection)?;
 
-    pub fn to_file(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let file = toml::to_string(&self)?;
-        std::fs::write(DEFAULT_CONFIG_PATH, file)?;
-        Ok(())
-    }
+        if config.local_id.is_none() {
+            info!("client is not registered, registering with api...");
 
-    pub fn load() -> Result<Self, Box<dyn std::error::Error>> {
-        let mut res = match Self::from_file() {
-            Ok(f) => f,
-            Err(e) => {
-                warn!("failed to load config from file, using default config {}", e);
-
-                if PathBuf::from(DEFAULT_CONFIG_PATH).exists() {
-                    let mut backup_path = PathBuf::from(DEFAULT_CONFIG_PATH);
-                    backup_path.set_extension("bak");
-                    std::fs::copy(DEFAULT_CONFIG_PATH, backup_path)?;
+            let (id, passcode) = match media::register(&config, agent) {
+                Ok(f) => f,
+                Err(e) => {
+                    error!("unable to register with api {}", e);
+                    exit(1);
                 }
+            };
 
+            config.local_id = Some(id);
+            config.local_passcode = Some(passcode);
 
-                Config {
-                    store_path: PathBuf::from("./media"),
-                    authenticated: false,
-                    local_id: None,
-                    local_passcode: None,
-                    webserver_address: "http://127.0.0.1:3000".to_string(),
-                    preshared_key: "hunter42".to_string(),
+            info!("success!");
+        }
+
+        info!("Checking authentication....");
+        if !config.authenticated {
+            info!("client is not authenticated, getting authentication url now.");
+
+            let auth_url = match media::get_auth_url(&config, agent) {
+                Ok(f) => f,
+                Err(e) => {
+                    error!("unable to get auth url {}", e);
+                    exit(1);
                 }
+            };
+
+            info!(
+                "please visit {} and complete authentication within 120 seconds",
+                auth_url
+            );
+
+            // wait for the user to authenticate
+            if let Err(e) = media::await_user_authentication(&config, agent) {
+                error!("authentication failed {}", e);
+                exit(1);
             }
-        };
+            config.authenticated = true;
 
-        // if any env vars are set, use them to override the config
-        if let Ok(webserver_address) = std::env::var("WEB_SERVER_ADDRESS") {
-            res.webserver_address = webserver_address;
-        } else {
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "WEB_SERVER_ADDRESS not set",
-            )));
+            info!("user authentication successful");
         }
 
-        if let Ok(store_path) = std::env::var("STORE_PATH") {
-            res.store_path = PathBuf::from(store_path);
-        } else {
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "STORE_PATH not set",
-            )));
-        }
+        database::save_config(connection, &config).expect("failed to save config");
 
-        if let Ok(psk) = std::env::var("PRESHARED_KEY") {
-            res.preshared_key = psk;
-        } else {
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "PRESHARED_KEY not set",
-            )));
-        }
-
-        Ok(res)
+        Ok(config)
     }
 }
 

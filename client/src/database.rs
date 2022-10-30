@@ -1,0 +1,164 @@
+use std::{error::Error, collections::HashMap, path::PathBuf};
+
+use diesel::{sqlite::Sqlite, Connection, ExpressionMethods, RunQueryDsl, QueryDsl};
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use shared_libs::json_templates::MediaItem;
+
+use crate::config::Config;
+
+pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+
+pub type DbConnection = diesel::SqliteConnection;
+pub type DB = Sqlite;
+
+pub fn run_migrations(connection: &mut impl MigrationHarness<DB>) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+    connection.run_pending_migrations(MIGRATIONS)?;
+    Ok(())
+}
+
+pub fn establish_connection(database_url: &str) -> Result<DbConnection, Box<dyn Error + Send + Sync + 'static>> {
+    Ok(DbConnection::establish(database_url)?)
+}
+
+pub fn save_media_item(
+    connection: &mut DbConnection,
+    media_item: &MediaItem,
+) -> Result<String, Box<dyn Error + Send + Sync + 'static>> {
+    use crate::schema::media::dsl::*;
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        .to_string();
+
+    let records = (
+        id.eq(&media_item.id),
+        description.eq(&media_item.description),
+        product_url.eq(&media_item.productUrl),
+        base_url.eq(&media_item.baseUrl),
+        mime_type.eq(&media_item.mimeType),
+        media_metadata.eq(String::from("")), //TODO
+        contributor_info.eq(String::from("")), //TODO
+        filename.eq(&media_item.filename),
+        download_attempts.eq(media_item.download_attempts as i32),
+        download_success.eq(&media_item.download_success),
+        download_timestamp.eq(&now),
+    );
+
+    // insert with each field specified manually
+    let r: String = diesel::insert_into(media)
+        .values(records.clone())
+        // on conflict, replace all fields
+        .on_conflict(id)
+        .do_update()
+        .set(records)
+        // return the id of the inserted row
+        .returning(id)
+        .load_iter(connection)?.next().unwrap()?;
+    Ok(r)
+}
+
+/// check if a media item is present in the database, searching by id
+pub fn in_database(
+    connection: &mut DbConnection,
+    search_id: &str,
+) -> Result<bool, Box<dyn Error>> {
+    use crate::schema::media::dsl::*;
+    let r: Vec<String> = media
+        .select(id)
+        .filter(id.eq(search_id))
+        .load(connection)?;
+    Ok(!r.is_empty())
+}
+
+pub fn load_config(
+    connection: &mut DbConnection,
+) -> Result<Config, Box<dyn Error>> {
+    // load every row from the config table into a hashmap of key-value pairs
+    use crate::schema::config::dsl::*;
+    let r: HashMap<String, String> = config
+        .select((key, value))
+        .load::<(String, String)>(connection)?
+        .into_iter()
+        .collect();
+
+    // if a key exists in env, load that over trying to load from the database
+    // otherwise pull it from the database and pass that into the config
+    let store_path = match std::env::var("STORE_PATH") {
+        Ok(s) => PathBuf::from(s),
+        Err(_) => PathBuf::from(r.get("store_path").unwrap()),
+    };
+
+    // if authenticated not present == false
+    let authenticated = match std::env::var("AUTHENTICATED") {
+        Ok(s) => s == "true",
+        Err(_) => r.get("authenticated").unwrap_or(&String::from("false")) == "true",
+    };
+
+    let local_id = match std::env::var("LOCAL_ID") {
+        Ok(s) => Some(s),
+        Err(_) => r.get("local_id").map(|s| s.to_string()),
+    };
+
+    let local_passcode = match std::env::var("LOCAL_PASSCODE") {
+        Ok(s) => Some(s),
+        Err(_) => r.get("local_passcode").map(|s| s.to_string()),
+    };
+
+    let webserver_address = match std::env::var("WEBSERVER_ADDRESS") {
+        Ok(s) => s,
+        Err(_) => r.get("webserver_address").unwrap().to_string(),
+    };
+
+    let preshared_key = match std::env::var("PRESHARED_KEY") {
+        Ok(s) => s,
+        Err(_) => r.get("preshared_key").unwrap().to_string(),
+    };
+
+    Ok(Config {
+        store_path,
+        authenticated,
+        local_id,
+        local_passcode,
+        webserver_address,
+        preshared_key,
+    })
+}
+
+pub fn save_config(
+    connection: &mut DbConnection,
+    save_config: &Config,
+) -> Result<(), Box<dyn Error>> {
+    use crate::schema::config::dsl::*;
+
+    // convert the config struct into a hashmap of key-value pairs
+    let authenticated = save_config.authenticated.to_string();
+    let mut r = vec![
+        ("store_path", save_config.store_path.to_str().unwrap()),
+        ("authenticated", &authenticated),
+        ("webserver_address", &save_config.webserver_address),
+        ("preshared_key", &save_config.preshared_key),
+    ];
+
+    if let Some(local_id) = &save_config.local_id {
+        r.push(("local_id", local_id));
+    }
+
+    if let Some(local_passcode) = &save_config.local_passcode {
+        r.push(("local_passcode", local_passcode));
+    }
+
+    // insert with each field specified manually
+    for (d_key, d_value) in r.into_iter() {
+        diesel::insert_into(config)
+            .values((key.eq(d_key), value.eq(d_value)))
+            // on conflict, replace all fields
+            .on_conflict(key)
+            .do_update()
+            .set(value.eq(d_value))
+            .execute(connection)?;
+        }
+
+    Ok(())
+}

@@ -13,12 +13,12 @@ use oauth2::{
     TokenResponse, TokenUrl, http::{HeaderMap, HeaderValue},
 };
 use reqwest::StatusCode;
+use shared_libs::json_templates::{RequestParameters, QueryData};
 use tokio::{sync::RwLock, time::error::Elapsed};
 use warp::{reject::Reject, Filter, Rejection, Reply};
 
 use crate::{
     auth::{Credentials, Token},
-    json_templates::{QueryData, RequestParameters},
     photoscanner::PhotoScanner,
     AppState, GoogleAuth, UserData,
 };
