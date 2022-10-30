@@ -4,7 +4,7 @@ use crate::{
 };
 use log::{error, info};
 use serde::{Deserialize, Serialize};
-use std::{error::Error, path::PathBuf, process::exit};
+use std::{error::Error, path::PathBuf, process::exit, sync::Mutex};
 use ureq::Agent;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -21,6 +21,8 @@ pub struct Config {
     pub webserver_address: String,
     /// The preshared key used to authenticate with the remote server
     pub preshared_key: String,
+    /// Whether we have completed the initial scan for this account yet
+    pub initial_scan_complete: Mutex<bool>,
 }
 
 impl Config {
@@ -74,5 +76,18 @@ impl Config {
         database::save_config(connection, &config).expect("failed to save config");
 
         Ok(config)
+    }
+
+    pub fn save(&self, connection: &mut DbConnection) -> Result<(), Box<dyn Error>> {
+        database::save_config(connection, self)
+    }
+
+    pub fn set_initial_scan_complete(&self, connection: &mut DbConnection) -> Result<(), Box<dyn Error>> {
+        *self.initial_scan_complete.lock().unwrap() = true;
+        database::save_config(connection, self)
+    }
+
+    pub fn initial_scan_complete(&self) -> bool {
+        *self.initial_scan_complete.lock().unwrap()
     }
 }

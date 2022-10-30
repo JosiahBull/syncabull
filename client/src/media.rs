@@ -100,11 +100,13 @@ pub(crate) fn await_user_authentication(
 pub(crate) fn get_media_items(
     config: &Config,
     agent: &Agent,
+    reload: bool,
 ) -> Result<Vec<MediaItem>, Box<dyn std::error::Error>> {
     let res = agent
         .get(&format!(
-            "{}/download?reload=false&max_count=20",
-            config.webserver_address
+            "{}/download?reload={}&max_count=20",
+            config.webserver_address,
+            reload
         ))
         .set(
             "authorization",

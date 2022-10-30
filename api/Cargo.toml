@@ -14,12 +14,12 @@ documentation = "https://github.com/JosiahBull/syncabull"
 [[bin]]
 bench = false
 path = "src/main.rs"
-name = "syncabull"
+name = "syncabull_api"
 
 [lib]
 bench = false
 path = "src/lib.rs"
-name = "syncabull_lib"
+name = "syncabull_api_lib"
 
 [dependencies]
 # Runtime and Utilities

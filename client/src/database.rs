@@ -1,4 +1,4 @@
-use std::{collections::HashMap, error::Error, path::PathBuf};
+use std::{collections::HashMap, error::Error, path::PathBuf, sync::Mutex};
 
 use diesel::{sqlite::Sqlite, Connection, ExpressionMethods, QueryDsl, RunQueryDsl};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
@@ -280,6 +280,12 @@ pub fn load_config(connection: &mut DbConnection) -> Result<Config, Box<dyn Erro
         Err(_) => r.get("preshared_key").unwrap().to_string(),
     };
 
+    let initial_scan_complete = match std::env::var("INITIAL_SCAN_COMPLETE") {
+        Ok(s) => s == "true",
+        Err(_) => r.get("initial_scan_complete").unwrap_or(&String::from("false")) == "true",
+    };
+    let initial_scan_complete = Mutex::new(initial_scan_complete);
+
     Ok(Config {
         store_path,
         authenticated,
@@ -287,6 +293,7 @@ pub fn load_config(connection: &mut DbConnection) -> Result<Config, Box<dyn Erro
         local_passcode,
         webserver_address,
         preshared_key,
+        initial_scan_complete
     })
 }
 
@@ -298,11 +305,13 @@ pub fn save_config(
 
     // convert the config struct into a hashmap of key-value pairs
     let authenticated = save_config.authenticated.to_string();
+    let initial_scan_complete = save_config.initial_scan_complete.lock().unwrap().to_string();
     let mut r = vec![
         ("store_path", save_config.store_path.to_str().unwrap()),
         ("authenticated", &authenticated),
         ("webserver_address", &save_config.webserver_address),
         ("preshared_key", &save_config.preshared_key),
+        ("initial_scan_complete", &initial_scan_complete),
     ];
 
     if let Some(local_id) = &save_config.local_id {
