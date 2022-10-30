@@ -209,6 +209,8 @@ pub fn download_scan(config: &Config, agent: &Agent, database: &mut DbConnection
 
 pub fn run() {
     //XXX: api rate limits, we need to be aware of them
+    //XXX: adjustable scan times
+    //XXX: Testing
 
     pretty_env_logger::init();
     let agent = agent();

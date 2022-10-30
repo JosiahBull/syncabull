@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use reqwest::Method;
 use shared_libs::json_templates::GetMediaItems;
 use std::time::Duration;

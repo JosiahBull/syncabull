@@ -4,7 +4,7 @@ WORKDIR /app
 RUN rustup toolchain install nightly-x86_64-unknown-linux-musl
 RUN rustup component add rust-src --toolchain nightly-x86_64-unknown-linux-musl
 
-RUN apk upgrade --update-cache --available && apk add openssl openssl-dev pkgconfig && rm -rf /var/cache/apk/*
+RUN apk upgrade --update-cache --available && apk add openssl openssl-dev pkgconfig
 
 FROM chef as planner
 COPY . .

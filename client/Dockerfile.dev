@@ -18,11 +18,11 @@ RUN cargo build
 # We do not need the Rust toolchain to run the binary!
 FROM alpine AS runtime
 WORKDIR /app
-COPY --from=builder /app/target/debug/syncabull_api /app/
+COPY --from=builder /app/target/debug/syncabull /app/
 
 ENV HOST 0.0.0.0
 ENV PORT 3000
 
 EXPOSE 3000
 
-CMD [ "/app/syncabull_api" ]
+CMD [ "/app/syncabull" ]

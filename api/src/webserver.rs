@@ -9,7 +9,7 @@ use std::{
 use handlebars::Handlebars;
 use oauth2::{
     basic::BasicClient,
-    http::{HeaderMap, HeaderValue},
+    http::HeaderValue,
     reqwest::http_client,
     AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge,
     PkceCodeVerifier, RedirectUrl, RevocationUrl, Scope, TokenResponse, TokenUrl,
@@ -232,14 +232,14 @@ impl WebServer {
             )
         })?;
 
-        if data.matches(":").count() != 1 {
+        if data.matches(':').count() != 1 {
             return Err(warp::reject::custom(CustomError::new(
                 String::from("Invalid auth string"),
                 StatusCode::BAD_REQUEST,
             )));
         }
 
-        let mut split = data.split(":");
+        let mut split = data.split(':');
         let username = match split.next() {
             Some(username) => username.to_string(),
             None => {
@@ -397,6 +397,10 @@ impl WebServer {
             let mut user = writer.users.get_mut(&user_id).unwrap();
             user.prev_token = user.next_token.clone();
             user.next_token = res.nextPageToken;
+
+            if user.next_token.is_none() {
+                user.initial_scan_complete = true;
+            }
         }
 
         let reply = warp::reply::with_status(
@@ -766,7 +770,7 @@ mod test {
                 .await;
         });
 
-        let mut client = reqwest::Client::new();
+        let client = reqwest::Client::new();
         let res = client
             .get("http://127.0.0.1:8000/hello")
             .basic_auth("username", Some("password"))

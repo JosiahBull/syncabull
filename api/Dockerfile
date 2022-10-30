@@ -4,7 +4,7 @@ WORKDIR /app
 RUN rustup toolchain install nightly-x86_64-unknown-linux-musl
 RUN rustup component add rust-src --toolchain nightly-x86_64-unknown-linux-musl
 
-RUN apk upgrade --update-cache --available && apk add openssl openssl-dev pkgconfig && rm -rf /var/cache/apk/*
+RUN apk upgrade --update-cache --available && apk add openssl openssl-dev pkgconfig
 
 FROM chef as planner
 COPY . .
@@ -21,11 +21,11 @@ RUN cargo +nightly build -Z build-std=std,panic_abort --target x86_64-unknown-li
 # We do not need the Rust toolchain to run the binary!
 FROM alpine AS runtime
 WORKDIR /app
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/production/syncabull /app/
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/production/syncabull_api /app/
 
 ENV HOST 0.0.0.0
 ENV PORT 3000
 
 EXPOSE 3000
 
-CMD [ "/app/syncabull" ]
+CMD [ "/app/syncabull_api" ]

@@ -23,9 +23,9 @@ name = "syncabull_api_lib"
 
 [dependencies]
 # Runtime and Utilities
-tokio = { version = "1", features = ["full"] }
-futures = "0.3.24"
-async-trait = "0.1.57"
+tokio = { version = "1.21.2", features = ["full"] }
+futures = "0.3.25"
+async-trait = "0.1.58"
 rand = "0.8.5"
 dotenv = "0.15.0"
 
@@ -37,8 +37,12 @@ handlebars = "4.3.5"
 oauth2 = "4.2.3"
 
 # Encoding & Decoding
-serde = { version = "1.0.145", features = ["derive"] }
-serde_json = { version = "1.0.86" }
+serde = { version = "1.0.147", features = ["derive"] }
+serde_json = { version = "1.0.87" }
 shared-libs = { path="../shared-libs" }
-base64 = "0.13.0"
+base64 = "0.13.1"
 sha2 = "0.10.6"
+
+# Logging
+log = "0.4.17"
+fern = { version = "0.6.1", features = ["colored", "date-based"] }
