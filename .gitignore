@@ -2,6 +2,9 @@
 /api/store.json
 
 /client/target
+target/
+media/
+*.db
 
 # Created by .ignore support plugin (hsz.mobi)
 ### Node template

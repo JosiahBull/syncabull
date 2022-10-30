@@ -21,11 +21,11 @@ RUN cargo +nightly build -Z build-std=std,panic_abort --target x86_64-unknown-li
 # We do not need the Rust toolchain to run the binary!
 FROM alpine AS runtime
 WORKDIR /app
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/production/syncabull_api /app/
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/production/syncabull /app/
 
 ENV HOST 0.0.0.0
 ENV PORT 3000
 
 EXPOSE 3000
 
-CMD [ "/app/syncabull_api" ]
+CMD [ "/app/syncabull" ]

@@ -1,24 +1,48 @@
 [package]
-name = "syncabull"
+name = "syncabull-api"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-oauth2 = "4.2.0"
-tokio = { version = "1", features = ["full"] }
-warp = { version = "0.3.2", features = ["multipart", "tls"] }
-futures = "0.3.21"
-reqwest = { version = "0.11.10", features = ["json", "serde_json", "tokio-util"] }
-serde = { version = "1.0.137", features = ["derive"] }
-serde_json = { version = "1.0.81" }
-rand = "0.8.5"
-sha2 = "0.10.2"
-handlebars = "4.2.2"
-async-trait = "0.1.53"
-base64 = "0.13.0"
+authors = ["Josiah Bull"]
+description = "Syncabull is a tool for keeping a local backup of Google Photos"
+repository = "https://github.com/JosiahBull/syncabull"
+license = "MIT"
+readme = "README.md"
+keywords = ["google", "photos", "backup"]
+categories = ["command-line-utilities"]
+documentation = "https://github.com/JosiahBull/syncabull"
 
 [[bin]]
-name = "app"
+bench = false
 path = "src/main.rs"
+name = "syncabull_api"
+
+[lib]
+bench = false
+path = "src/lib.rs"
+name = "syncabull_api_lib"
+
+[dependencies]
+# Runtime and Utilities
+tokio = { version = "1.21.2", features = ["full"] }
+futures = "0.3.25"
+async-trait = "0.1.58"
+rand = "0.8.5"
+dotenv = "0.15.0"
+
+# HTTP Things
+# TODO: switch to rocket
+warp = { version = "0.3.3", features = ["multipart", "tls"] }
+reqwest = { version = "0.11.12", features = ["json", "serde_json", "tokio-util"] }
+handlebars = "4.3.5"
+oauth2 = "4.2.3"
+
+# Encoding & Decoding
+serde = { version = "1.0.147", features = ["derive"] }
+serde_json = { version = "1.0.87" }
+shared-libs = { path="../shared-libs" }
+base64 = "0.13.1"
+sha2 = "0.10.6"
+
+# Logging
+log = "0.4.17"
+fern = { version = "0.6.1", features = ["colored", "date-based"] }

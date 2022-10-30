@@ -1,27 +1,37 @@
-use std::time::Duration;
+#![allow(dead_code)]
 
 use reqwest::Method;
+use shared_libs::json_templates::GetMediaItems;
+use std::time::Duration;
 
-use crate::{json_templates::GetMediaItems, GoogleAuth};
+use crate::GoogleAuth;
 
 #[derive(Debug)]
 pub enum ScanningError {
-    // NoConnection,
+    NoConnection,
     InvalidGoogleAuth,
+    NetworkFailure(reqwest::Error),
     InternalFailure(String),
 }
 
 impl std::fmt::Display for ScanningError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
-            // ScanningError::NoConnection => write!(f, "No connection to Google Photos"),
+            ScanningError::NoConnection => write!(f, "No connection to Google Photos"),
             ScanningError::InvalidGoogleAuth => write!(f, "Invalid Google Auth"),
+            ScanningError::NetworkFailure(ref err) => write!(f, "Network failure: {}", err),
             ScanningError::InternalFailure(ref msg) => write!(f, "Internal failure: {}", msg),
         }
     }
 }
 
 impl std::error::Error for ScanningError {}
+
+impl From<reqwest::Error> for ScanningError {
+    fn from(err: reqwest::Error) -> Self {
+        ScanningError::NetworkFailure(err)
+    }
+}
 
 #[derive(Debug)]
 pub struct PhotoScanner {
@@ -59,8 +69,7 @@ impl PhotoScanner {
             .header("Authorization", format!("Bearer {}", auth.token))
             .timeout(Duration::from_millis(self.timeout_ms))
             .send()
-            .await
-            .unwrap(); //TODO: handle error
+            .await?;
 
         if !response.status().is_success() {
             return Err(ScanningError::InternalFailure(format!(

@@ -1,5 +1,4 @@
 mod auth;
-mod json_templates;
 mod photoscanner;
 mod webserver;
 
@@ -72,6 +71,8 @@ impl AppState {
 
 #[tokio::main]
 async fn main() {
+    dotenv::dotenv().ok();
+
     println!("starting api");
     println!("loading state");
     let state = match tokio::fs::metadata(path::Path::new(STORE_PATH)).await {
@@ -81,8 +82,8 @@ async fn main() {
 
     let state = Arc::new(RwLock::new(state));
 
+    // Extremely dirty solution which looks to save database data to the disk every 60 seconds
     println!("database loader setup");
-    // Extremely dirty solution which looks to save database data to the disk every 20 seconds
     let database_state = state.clone();
     let database_handle = tokio::task::spawn(async move {
         loop {
@@ -91,6 +92,27 @@ async fn main() {
                 .await
                 .to_disk(path::PathBuf::from(STORE_PATH))
                 .await;
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        }
+    });
+
+    // Remove expired Tokens from the database, checking every 60 seconds
+    println!("token cleaner setup");
+    let token_cleaner_state = state.clone();
+    let token_cleaner_handle = tokio::task::spawn(async move {
+        loop {
+            {
+                let mut state = token_cleaner_state.write().await;
+                state.auth_keys.retain(|_, token| {
+                    if token.is_expired() {
+                        println!("token expired: {}", token.token);
+                        false
+                    } else {
+                        true
+                    }
+                });
+            }
+
             tokio::time::sleep(Duration::from_secs(60)).await;
         }
     });
@@ -124,5 +146,5 @@ async fn main() {
     });
 
     println!("server started, waiting for new connections");
-    join_all([webserver_handle, database_handle]).await;
+    join_all([webserver_handle, database_handle, token_cleaner_handle]).await;
 }

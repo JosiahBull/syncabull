@@ -66,7 +66,7 @@ impl Token {
                 .map(char::from)
                 .collect(),
             expiry: SystemTime::now()
-                .checked_add(Duration::from_secs(3600))
+                .checked_add(Duration::from_secs(60*5)) // 5 minutes to complete auth
                 .unwrap(),
         }
     }
