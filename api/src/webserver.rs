@@ -8,12 +8,14 @@ use std::{
 
 use handlebars::Handlebars;
 use oauth2::{
-    basic::BasicClient, reqwest::http_client, AuthUrl, AuthorizationCode, ClientId, ClientSecret,
-    CsrfToken, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RevocationUrl, Scope,
-    TokenResponse, TokenUrl, http::{HeaderMap, HeaderValue},
+    basic::BasicClient,
+    http::{HeaderMap, HeaderValue},
+    reqwest::http_client,
+    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge,
+    PkceCodeVerifier, RedirectUrl, RevocationUrl, Scope, TokenResponse, TokenUrl,
 };
 use reqwest::StatusCode;
-use shared_libs::json_templates::{RequestParameters, QueryData};
+use shared_libs::json_templates::{QueryData, RequestParameters};
 use tokio::{sync::RwLock, time::error::Elapsed};
 use warp::{reject::Reject, Filter, Rejection, Reply};
 
@@ -191,7 +193,9 @@ fn with<T: Send + Sync>(
     warp::any().map(move || data.clone())
 }
 
-pub fn with_auth(server: Arc<WebServer>) -> impl Filter<Extract = (String,), Error = Rejection> + Clone {
+pub fn with_auth(
+    server: Arc<WebServer>,
+) -> impl Filter<Extract = (String,), Error = Rejection> + Clone {
     warp::header::value("authorization")
         .and(with(server))
         .and_then(WebServer::login)
@@ -204,10 +208,7 @@ impl WebServer {
 
     async fn login(token: HeaderValue, webserver: Arc<WebServer>) -> Result<String, Rejection> {
         let token = token.to_str().map_err(|e| {
-            CustomError::new(
-                format!("Invalid token: {}", e),
-                StatusCode::BAD_REQUEST,
-            )
+            CustomError::new(format!("Invalid token: {}", e), StatusCode::BAD_REQUEST)
         })?;
 
         if token.len() < 5 {
@@ -315,7 +316,6 @@ impl WebServer {
         settings: RequestParameters,
         user_id: String,
     ) -> Result<impl Reply, Rejection> {
-
         let token;
         let google_token;
         {
@@ -399,7 +399,6 @@ impl WebServer {
             user.next_token = res.nextPageToken;
         }
 
-
         let reply = warp::reply::with_status(
             warp::reply::json(&res.mediaItems),
             warp::http::StatusCode::OK,
@@ -408,7 +407,10 @@ impl WebServer {
         Ok(reply)
     }
 
-    pub async fn get_auth_url(server: Arc<WebServer>, user_id: String) -> Result<impl Reply, Rejection> {
+    pub async fn get_auth_url(
+        server: Arc<WebServer>,
+        user_id: String,
+    ) -> Result<impl Reply, Rejection> {
         let token = Token::generate_token(&user_id);
 
         let reply = format!("{}/api/1/auth/{}", server.domain, token.token);
@@ -558,51 +560,55 @@ impl WebServer {
         ))
     }
 
-    pub async fn login_check(webserver: Arc<WebServer>, user_id: String) -> Result<impl Reply, Rejection> {
+    pub async fn login_check(
+        webserver: Arc<WebServer>,
+        user_id: String,
+    ) -> Result<impl Reply, Rejection> {
         //XXX move timeout to config option?
 
         let timeout_secs = 200;
 
-        let result: Result<Result<(), Rejection>, Elapsed> = tokio::time::timeout(Duration::from_secs(timeout_secs), async move {
-            loop {
-                let reader = webserver.state.read().await;
-                let user = match reader.users.get(&user_id) {
-                    Some(s) => s,
-                    None => {
-                        return Err(warp::reject::custom(CustomError::new(
-                            String::from("invalid login"),
-                            StatusCode::UNAUTHORIZED,
-                        )))
+        let result: Result<Result<(), Rejection>, Elapsed> =
+            tokio::time::timeout(Duration::from_secs(timeout_secs), async move {
+                loop {
+                    let reader = webserver.state.read().await;
+                    let user = match reader.users.get(&user_id) {
+                        Some(s) => s,
+                        None => {
+                            return Err(warp::reject::custom(CustomError::new(
+                                String::from("invalid login"),
+                                StatusCode::UNAUTHORIZED,
+                            )))
+                        }
+                    };
+
+                    if user.google_auth.is_some() {
+                        return Ok(());
                     }
-                };
 
-                if user.google_auth.is_some() {
-                    return Ok(())
+                    //sleep before checking again
+                    tokio::time::sleep(Duration::from_millis(1000)).await;
                 }
-
-                //sleep before checking again
-                tokio::time::sleep(Duration::from_millis(1000)).await;
-            }
-        }).await;
+            })
+            .await;
 
         match result {
             Ok(Err(e)) => Err(e),
-            Ok(_) => {
-                Ok(warp::reply::with_status(
-                    warp::reply(),
-                    StatusCode::NO_CONTENT,
-                ))
-            }
-            Err(_) => {
-                Err(warp::reject::custom(CustomError::new(
-                    String::from("invalid login"),
-                    StatusCode::UNAUTHORIZED,
-                )))
-            }
+            Ok(_) => Ok(warp::reply::with_status(
+                warp::reply(),
+                StatusCode::NO_CONTENT,
+            )),
+            Err(_) => Err(warp::reject::custom(CustomError::new(
+                String::from("invalid login"),
+                StatusCode::UNAUTHORIZED,
+            ))),
         }
     }
 
-    pub async fn delete_data(webserver: Arc<WebServer>, user_id: String) -> Result<impl Reply, Rejection> {
+    pub async fn delete_data(
+        webserver: Arc<WebServer>,
+        user_id: String,
+    ) -> Result<impl Reply, Rejection> {
         let mut writer = webserver.state.write().await;
         if writer.users.remove(&user_id).is_none() {
             return Err(warp::reject::custom(CustomError::new(
@@ -696,30 +702,27 @@ impl WebServer {
             .and_then(WebServer::delete_data)
             .recover(handle_custom_error);
 
-            // General catch-all endpoint if a failure occurs
-            let catcher = warp::any()
-                .and(warp::path::full())
-                .map(|path| warp::reply::with_status(format!("Path {:?} not found", path), StatusCode::NOT_FOUND));
+        // General catch-all endpoint if a failure occurs
+        let catcher = warp::any().and(warp::path::full()).map(|path| {
+            warp::reply::with_status(format!("Path {:?} not found", path), StatusCode::NOT_FOUND)
+        });
 
         //TODO: refactor this.
         // every route needs webserver, so lets do that here
         // routes that require authorisation should be done here - avoids accidentally not authorising a route
         // routes shoudl be authorised and rejected here *not* inside of the functions
-        let api_1 = warp::any()
-            .and(warp::path("api"))
-            .and(warp::path("1"))
-            .and(
-                register
-                    .or(download)
-                    .or(get_auth_url)
-                    .or(auth)
-                    .or(auth_callback)
-                    .or(auth_token_completion)
-                    .or(login_check)
-                    .or(delete_data),
-            );
+        let api_1 = warp::any().and(warp::path("api")).and(warp::path("1")).and(
+            register
+                .or(download)
+                .or(get_auth_url)
+                .or(auth)
+                .or(auth_callback)
+                .or(auth_token_completion)
+                .or(login_check)
+                .or(delete_data),
+        );
 
-            let routes = warp::any().and(api_1.or(catcher));
+        let routes = warp::any().and(api_1.or(catcher));
 
         println!(
             "binding to : {}:{}",

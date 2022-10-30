@@ -1,6 +1,6 @@
-use std::{error::Error, collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, error::Error, path::PathBuf};
 
-use diesel::{sqlite::Sqlite, Connection, ExpressionMethods, RunQueryDsl, QueryDsl};
+use diesel::{sqlite::Sqlite, Connection, ExpressionMethods, QueryDsl, RunQueryDsl};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use shared_libs::json_templates::MediaItem;
 
@@ -11,14 +11,43 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 pub type DbConnection = diesel::SqliteConnection;
 pub type DB = Sqlite;
 
-pub fn run_migrations(connection: &mut impl MigrationHarness<DB>) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+pub fn run_migrations(
+    connection: &mut impl MigrationHarness<DB>,
+) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
     connection.run_pending_migrations(MIGRATIONS)?;
     Ok(())
 }
 
-pub fn establish_connection(database_url: &str) -> Result<DbConnection, Box<dyn Error + Send + Sync + 'static>> {
+pub fn establish_connection(
+    database_url: &str,
+) -> Result<DbConnection, Box<dyn Error + Send + Sync + 'static>> {
     Ok(DbConnection::establish(database_url)?)
 }
+
+// media (id) {
+//     id -> Text,
+//     description -> Nullable<Text>,
+//     product_url -> Text,
+//     base_url -> Text,
+//     mime_type -> Nullable<Text>,
+//     filename -> Text,
+//     creation_time -> Nullable<Text>,
+//     width -> Nullable<Integer>,
+//     height -> Nullable<Integer>,
+//     camera_make -> Nullable<Text>,
+//     camera_model -> Nullable<Text>,
+//     focal_length -> Nullable<Float>,
+//     aperture -> Nullable<Float>,
+//     iso_equivalent -> Nullable<Integer>,
+//     exposure_time -> Nullable<Text>,
+//     fps -> Nullable<Float>,
+//     processing_status -> Nullable<Text>,
+//     profile_picture_url -> Nullable<Text>,
+//     display_name -> Nullable<Text>,
+//     download_attempts -> Integer,
+//     download_success -> Bool,
+//     download_timestamp -> Text,
+// }
 
 pub fn save_media_item(
     connection: &mut DbConnection,
@@ -38,12 +67,153 @@ pub fn save_media_item(
         product_url.eq(&media_item.productUrl),
         base_url.eq(&media_item.baseUrl),
         mime_type.eq(&media_item.mimeType),
-        media_metadata.eq(String::from("")), //TODO
-        contributor_info.eq(String::from("")), //TODO
         filename.eq(&media_item.filename),
         download_attempts.eq(media_item.download_attempts as i32),
         download_success.eq(&media_item.download_success),
         download_timestamp.eq(&now),
+        // mediaMetadata might be null
+        creation_time.eq({
+            media_item
+                .mediaMetadata
+                .as_ref()
+                .map(|media_metadata| &media_metadata.creationTime)
+        }),
+        width.eq({
+            media_item
+                .mediaMetadata
+                .as_ref()
+                .map(|media_metadata| &media_metadata.width)
+        }),
+        height.eq({
+            media_item
+                .mediaMetadata
+                .as_ref()
+                .map(|media_metadata| &media_metadata.height)
+        }),
+        camera_make.eq({
+            media_item
+                .mediaMetadata
+                .as_ref()
+                .and_then(|media_metadata| {
+                    // if photo is some -> get photo value, otherwise get video value
+                    // ensure we only create an Option<String> and not an Option<Option<String>>
+                    media_metadata
+                        .photo
+                        .as_ref()
+                        .and_then(|photo| photo.cameraMake.as_ref())
+                        .or_else(|| {
+                            media_metadata
+                                .video
+                                .as_ref()
+                                .and_then(|video| video.cameraMake.as_ref())
+                        })
+                })
+        }),
+        camera_model.eq({
+            media_item
+                .mediaMetadata
+                .as_ref()
+                .and_then(|media_metadata| {
+                    // if photo is some -> get photo value, otherwise get video value
+                    // ensure we only create an Option<String> and not an Option<Option<String>>
+                    media_metadata
+                        .photo
+                        .as_ref()
+                        .and_then(|photo| photo.cameraModel.as_ref())
+                        .or_else(|| {
+                            media_metadata
+                                .video
+                                .as_ref()
+                                .and_then(|video| video.cameraModel.as_ref())
+                        })
+                })
+        }),
+        focal_length.eq({
+            // value only from photo if present
+            media_item
+                .mediaMetadata
+                .as_ref()
+                .and_then(|media_metadata| {
+                    media_metadata
+                        .photo
+                        .as_ref()
+                        .and_then(|photo| photo.focalLength.as_ref().map(|f| *f as f32))
+                })
+        }),
+        aperture.eq({
+            // value only from photo if present
+            media_item
+                .mediaMetadata
+                .as_ref()
+                .and_then(|media_metadata| {
+                    media_metadata
+                        .photo
+                        .as_ref()
+                        .and_then(|photo| photo.apertureFNumber.as_ref().map(|f| *f as f32))
+                })
+        }),
+        iso_equivalent.eq({
+            // value only from photo if present
+            media_item
+                .mediaMetadata
+                .as_ref()
+                .and_then(|media_metadata| {
+                    media_metadata
+                        .photo
+                        .as_ref()
+                        .and_then(|photo| photo.isoEquivalent.as_ref().map(|f| *f as i32))
+                })
+        }),
+        exposure_time.eq({
+            // value only from photo if present
+            media_item
+                .mediaMetadata
+                .as_ref()
+                .and_then(|media_metadata| {
+                    media_metadata
+                        .photo
+                        .as_ref()
+                        .and_then(|photo| photo.exposureTime.as_ref())
+                })
+        }),
+        fps.eq({
+            // value only from video if present
+            media_item
+                .mediaMetadata
+                .as_ref()
+                .and_then(|media_metadata| {
+                    media_metadata
+                        .video
+                        .as_ref()
+                        .and_then(|video| video.fps.as_ref().map(|f| *f as f32))
+                })
+        }),
+        processing_status.eq({
+            // value only from video if present
+            media_item
+                .mediaMetadata
+                .as_ref()
+                .and_then(|media_metadata| {
+                    media_metadata
+                        .video
+                        .as_ref()
+                        .and_then(|video| video.status.as_ref().map(|s| s.to_string()))
+                })
+        }),
+        profile_picture_url.eq({
+            //only present if contributor is present
+            media_item
+                .contributorInfo
+                .as_ref()
+                .map(|contributor_info| &contributor_info.profilePictureBaseUrl)
+        }),
+        display_name.eq({
+            //only present if contributor is present
+            media_item
+                .contributorInfo
+                .as_ref()
+                .map(|contributor_info| &contributor_info.displayName)
+        }),
     );
 
     // insert with each field specified manually
@@ -55,26 +225,20 @@ pub fn save_media_item(
         .set(records)
         // return the id of the inserted row
         .returning(id)
-        .load_iter(connection)?.next().unwrap()?;
+        .load_iter(connection)?
+        .next()
+        .unwrap()?;
     Ok(r)
 }
 
 /// check if a media item is present in the database, searching by id
-pub fn in_database(
-    connection: &mut DbConnection,
-    search_id: &str,
-) -> Result<bool, Box<dyn Error>> {
+pub fn in_database(connection: &mut DbConnection, search_id: &str) -> Result<bool, Box<dyn Error>> {
     use crate::schema::media::dsl::*;
-    let r: Vec<String> = media
-        .select(id)
-        .filter(id.eq(search_id))
-        .load(connection)?;
+    let r: Vec<String> = media.select(id).filter(id.eq(search_id)).load(connection)?;
     Ok(!r.is_empty())
 }
 
-pub fn load_config(
-    connection: &mut DbConnection,
-) -> Result<Config, Box<dyn Error>> {
+pub fn load_config(connection: &mut DbConnection) -> Result<Config, Box<dyn Error>> {
     // load every row from the config table into a hashmap of key-value pairs
     use crate::schema::config::dsl::*;
     let r: HashMap<String, String> = config
@@ -158,7 +322,7 @@ pub fn save_config(
             .do_update()
             .set(value.eq(d_value))
             .execute(connection)?;
-        }
+    }
 
     Ok(())
 }

@@ -1,5 +1,7 @@
 #![allow(non_snake_case)]
 
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -46,6 +48,17 @@ pub enum VideoProcessingStatus {
     PROCESSING,
     READY,
     FAILED,
+}
+
+impl Display for VideoProcessingStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VideoProcessingStatus::UNSPECIFIED => write!(f, "UNSPECIFIED"),
+            VideoProcessingStatus::PROCESSING => write!(f, "PROCESSING"),
+            VideoProcessingStatus::READY => write!(f, "READY"),
+            VideoProcessingStatus::FAILED => write!(f, "FAILED"),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]

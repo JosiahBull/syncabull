@@ -1,13 +1,13 @@
-pub mod database;
-pub mod schema;
-pub mod media;
 pub mod cli;
 pub mod config;
+pub mod database;
+pub mod media;
+pub mod schema;
 
 use std::{collections::VecDeque, time::Duration};
 
 use database::{establish_connection, run_migrations, DbConnection};
-use log::{error, info, debug};
+use log::{debug, error, info};
 use shared_libs::json_templates::MediaItem;
 use ureq::Agent;
 
@@ -15,7 +15,6 @@ use crate::config::Config;
 
 type Id = String;
 type Passcode = String;
-
 
 pub fn agent() -> Agent {
     Agent::new()
@@ -31,7 +30,7 @@ pub fn download_scan(config: &Config, agent: &Agent, database: &mut DbConnection
                 Ok(i) => {
                     wait_time = 1;
                     i
-                },
+                }
                 Err(e) => {
                     error!(
                         "failed to collect media items for download due to error: {}",
@@ -49,7 +48,6 @@ pub fn download_scan(config: &Config, agent: &Agent, database: &mut DbConnection
             download_queue.extend(items);
         }
 
-
         if let Some(mut item) = download_queue.pop_front() {
             match database::in_database(database, &item.id) {
                 Ok(true) => {
@@ -58,7 +56,10 @@ pub fn download_scan(config: &Config, agent: &Agent, database: &mut DbConnection
                 }
                 Ok(false) => {}
                 Err(e) => {
-                    error!("failed to check if item {} is in database due to error: {}", item.id, e);
+                    error!(
+                        "failed to check if item {} is in database due to error: {}",
+                        item.id, e
+                    );
                     continue;
                 }
             }

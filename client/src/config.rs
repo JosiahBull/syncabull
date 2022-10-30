@@ -1,8 +1,11 @@
-use std::{path::PathBuf, error::Error, process::exit};
-use log::{info, error};
+use crate::{
+    database::{self, DbConnection},
+    media, Id, Passcode,
+};
+use log::{error, info};
 use serde::{Deserialize, Serialize};
+use std::{error::Error, path::PathBuf, process::exit};
 use ureq::Agent;
-use crate::{Id, Passcode, database::{DbConnection, self}, media};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
@@ -73,4 +76,3 @@ impl Config {
         Ok(config)
     }
 }
-

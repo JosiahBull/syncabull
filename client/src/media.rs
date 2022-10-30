@@ -1,11 +1,9 @@
-use crate::{
-    Id, Passcode, config::Config,
-};
-use log::{info, error};
+use crate::{config::Config, Id, Passcode};
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 use shared_libs::json_templates::MediaItem;
+use std::{fs::File, time::Duration};
 use ureq::Agent;
-use std::{time::Duration,fs::File};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Register {
@@ -41,7 +39,17 @@ pub(crate) fn get_auth_url(
 ) -> Result<String, Box<dyn std::error::Error>> {
     let res = agent
         .get(&format!("{}/auth_url", config.webserver_address))
-        .set("authorization", &format!("basic {}", &base64::encode(format!("{}:{}", config.local_id.as_ref().unwrap(), config.local_passcode.as_ref().unwrap()))))
+        .set(
+            "authorization",
+            &format!(
+                "basic {}",
+                &base64::encode(format!(
+                    "{}:{}",
+                    config.local_id.as_ref().unwrap(),
+                    config.local_passcode.as_ref().unwrap()
+                ))
+            ),
+        )
         .call()?;
 
     if !(res.status() >= 200 && res.status() < 300) {
@@ -63,7 +71,17 @@ pub(crate) fn await_user_authentication(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let res = agent
         .get(&format!("{}/is_logged_in", config.webserver_address))
-        .set("authorization", &format!("basic {}", &base64::encode(format!("{}:{}", config.local_id.as_ref().unwrap(), config.local_passcode.as_ref().unwrap()))))
+        .set(
+            "authorization",
+            &format!(
+                "basic {}",
+                &base64::encode(format!(
+                    "{}:{}",
+                    config.local_id.as_ref().unwrap(),
+                    config.local_passcode.as_ref().unwrap()
+                ))
+            ),
+        )
         .timeout(Duration::from_secs(120))
         .call()?;
 
@@ -88,7 +106,17 @@ pub(crate) fn get_media_items(
             "{}/download?reload=false&max_count=20",
             config.webserver_address
         ))
-        .set("authorization", &format!("basic {}", &base64::encode(format!("{}:{}", config.local_id.as_ref().unwrap(), config.local_passcode.as_ref().unwrap()))))
+        .set(
+            "authorization",
+            &format!(
+                "basic {}",
+                &base64::encode(format!(
+                    "{}:{}",
+                    config.local_id.as_ref().unwrap(),
+                    config.local_passcode.as_ref().unwrap()
+                ))
+            ),
+        )
         .call()?;
 
     if !(res.status() >= 200 && res.status() < 300) {
@@ -116,9 +144,7 @@ pub(crate) fn download_item(
 
     let url = format!("{}={}", &item.baseUrl, param);
 
-    let res = agent
-        .get(&url)
-        .call()?;
+    let res = agent.get(&url).call()?;
 
     if !(res.status() >= 200 && res.status() < 300) {
         return Err(Box::new(std::io::Error::new(

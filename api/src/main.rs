@@ -73,7 +73,6 @@ impl AppState {
 async fn main() {
     dotenv::dotenv().ok();
 
-
     println!("starting api");
     println!("loading state");
     let state = match tokio::fs::metadata(path::Path::new(STORE_PATH)).await {
