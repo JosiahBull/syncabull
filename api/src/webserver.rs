@@ -20,9 +20,9 @@ use tokio::{sync::RwLock, time::error::Elapsed};
 use warp::{reject::Reject, Filter, Rejection, Reply};
 
 use crate::{
-    auth::{Credentials, Token},
+    auth::Credentials,
     photoscanner::PhotoScanner,
-    AppState, GoogleAuth, UserData,
+    AppState, database::{GoogleAuth, UserData, Token}
 };
 
 #[derive(Debug)]
@@ -260,7 +260,7 @@ impl WebServer {
             }
         };
 
-        let hashed_passcode = match webserver.state.read().await.users.get(&username) {
+        let hashed_passcode = match webserver.state.read().await.get_user_by_username(&username).await.unwrap() {
             Some(s) => s.hashed_passcode.clone(), //clone requires alloc, but it allows us to drop the rwlock
             None => {
                 return Err(warp::reject::custom(CustomError::new(
@@ -287,12 +287,17 @@ impl WebServer {
         let mut insecure: String;
         loop {
             (auth, insecure) = Credentials::new();
-            if !writer.users.contains_key(&auth.id) {
+            if !writer.user_exists(&auth.id).await.unwrap() {
                 break;
             }
         }
 
-        writer.users.insert(
+        // writer.users.insert(
+        //     auth.id.clone(),
+
+        // );
+
+        writer.add_user(
             auth.id.clone(),
             UserData {
                 hashed_passcode: auth.passcode,
@@ -302,7 +307,8 @@ impl WebServer {
                 next_token: None,
                 prev_token: None,
             },
-        );
+        ).await.unwrap();
+
 
         auth.passcode = insecure;
         Ok(warp::reply::with_status(

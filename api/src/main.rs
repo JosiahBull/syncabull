@@ -1,73 +1,25 @@
 mod auth;
 mod photoscanner;
 mod webserver;
+mod database;
+mod schema;
 
-use auth::Token;
 use photoscanner::PhotoScanner;
-use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use webserver::WebServer;
 
 use futures::future::join_all;
 use handlebars::Handlebars;
 use std::{
-    collections::HashMap,
     env,
-    path::{self, PathBuf},
+    path,
     sync::Arc,
-    time::{Duration, SystemTime},
+    time::Duration,
 };
 
+use crate::database::AppState;
+
 const STORE_PATH: &str = "store.json";
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct GoogleAuth {
-    /// A bearer token used to access the google api
-    pub token: String,
-    /// Time when the above bearer token expires, in seconds since unix epoch
-    pub token_expiry_sec_epoch: SystemTime,
-    /// Token used to refresh the bearer token with the google api
-    pub refresh_token: String,
-}
-
-impl GoogleAuth {
-    pub fn is_expired(&self) -> bool {
-        SystemTime::now() > self.token_expiry_sec_epoch
-    }
-}
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-pub struct UserData {
-    pub hashed_passcode: String,
-    pub tokens: Vec<String>,
-    pub google_auth: Option<GoogleAuth>,
-    /// If the initial scan has been completed
-    pub initial_scan_complete: bool,
-    /// The token for the next page
-    pub next_token: Option<String>,
-    /// The previous token that was used, so the user can repeat a request if required
-    pub prev_token: Option<String>,
-}
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-pub struct AppState {
-    users: HashMap<String, UserData>,
-    auth_keys: HashMap<String, Token>,
-    unclaimed_auth_tokens: HashMap<String, GoogleAuth>,
-}
-
-impl AppState {
-    pub async fn from_disk(path: PathBuf) -> Self {
-        let data = tokio::fs::read(&path).await.unwrap();
-        let res: Self = serde_json::from_slice(&data).unwrap();
-        res
-    }
-
-    pub async fn to_disk(&self, path: PathBuf) {
-        let data = serde_json::to_vec(&self).unwrap();
-        tokio::fs::write(&path, data).await.unwrap();
-    }
-}
 
 #[tokio::main]
 async fn main() {
@@ -75,47 +27,49 @@ async fn main() {
 
     println!("starting api");
     println!("loading state");
-    let state = match tokio::fs::metadata(path::Path::new(STORE_PATH)).await {
-        Ok(_) => AppState::from_disk(path::PathBuf::from(STORE_PATH)).await,
-        Err(_) => AppState::default(),
-    };
+    // let state = match tokio::fs::metadata(path::Path::new(STORE_PATH)).await {
+    //     Ok(_) => AppState::from_disk(path::PathBuf::from(STORE_PATH)).await,
+    //     Err(_) => AppState::default(),
+    // };
+
+    let state = AppState::default();
 
     let state = Arc::new(RwLock::new(state));
 
     // Extremely dirty solution which looks to save database data to the disk every 60 seconds
-    println!("database loader setup");
-    let database_state = state.clone();
-    let database_handle = tokio::task::spawn(async move {
-        loop {
-            database_state
-                .read()
-                .await
-                .to_disk(path::PathBuf::from(STORE_PATH))
-                .await;
-            tokio::time::sleep(Duration::from_secs(60)).await;
-        }
-    });
+    // println!("database loader setup");
+    // let database_state = state.clone();
+    // let database_handle = tokio::task::spawn(async move {
+    //     loop {
+    //         database_state
+    //             .read()
+    //             .await
+    //             .to_disk(path::PathBuf::from(STORE_PATH))
+    //             .await;
+    //         tokio::time::sleep(Duration::from_secs(60)).await;
+    //     }
+    // });
 
     // Remove expired Tokens from the database, checking every 60 seconds
-    println!("token cleaner setup");
-    let token_cleaner_state = state.clone();
-    let token_cleaner_handle = tokio::task::spawn(async move {
-        loop {
-            {
-                let mut state = token_cleaner_state.write().await;
-                state.auth_keys.retain(|_, token| {
-                    if token.is_expired() {
-                        println!("token expired: {}", token.token);
-                        false
-                    } else {
-                        true
-                    }
-                });
-            }
+    // println!("token cleaner setup");
+    // let token_cleaner_state = state.clone();
+    // let token_cleaner_handle = tokio::task::spawn(async move {
+    //     loop {
+    //         {
+    //             let mut state = token_cleaner_state.write().await;
+    //             state.auth_keys.retain(|_, token| {
+    //                 if token.is_expired() {
+    //                     println!("token expired: {}", token.token);
+    //                     false
+    //                 } else {
+    //                     true
+    //                 }
+    //             });
+    //         }
 
-            tokio::time::sleep(Duration::from_secs(60)).await;
-        }
-    });
+    //         tokio::time::sleep(Duration::from_secs(60)).await;
+    //     }
+    // });
 
     println!("loading webserver");
     // This task handles webserver requests
@@ -146,5 +100,5 @@ async fn main() {
     });
 
     println!("server started, waiting for new connections");
-    join_all([webserver_handle, database_handle, token_cleaner_handle]).await;
+    join_all([webserver_handle]).await;
 }

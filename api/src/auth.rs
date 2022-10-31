@@ -1,5 +1,6 @@
 use std::time::{Duration, SystemTime};
 
+use diesel::Queryable;
 use rand::{distributions::Alphanumeric, Rng};
 
 use serde::{Deserialize, Serialize};
@@ -46,33 +47,5 @@ impl Credentials {
         let hashed_passcode_test = format!("{:x}", hasher.finalize());
 
         hashed_passcode == &hashed_passcode_test
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Token {
-    pub id: Id,
-    pub token: String,
-    pub expiry: SystemTime,
-}
-
-impl Token {
-    pub fn generate_token(id: &Id) -> Token {
-        Token {
-            id: id.clone(),
-            token: rand::thread_rng()
-                .sample_iter(&Alphanumeric)
-                .take(32)
-                .map(char::from)
-                .collect(),
-            expiry: SystemTime::now()
-                .checked_add(Duration::from_secs(60*5)) // 5 minutes to complete auth
-                .unwrap(),
-        }
-    }
-
-    /// function to check if token has expired
-    pub fn is_expired(&self) -> bool {
-        SystemTime::now() > self.expiry
     }
 }
