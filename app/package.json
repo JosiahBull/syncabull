@@ -1,15 +1,4 @@
 {
-  "name": "app",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "nuxt",
-    "dev:docker": "docker build -t fsp-ui-dev -f Dockerfile.dev .; docker run -it --rm --name fsp-ui-dev -v $(pwd):/app:z fsp-ui-dev",
-    "docker-dev-entry": "yarn; yarn dev",
-    "build": "nuxt build",
-    "start": "nuxt start",
-    "generate": "nuxt generate"
-  },
   "dependencies": {
     "@nuxtjs/axios": "^5.13.6",
     "bootstrap": "^4.6.1",
@@ -24,5 +13,16 @@
   "devDependencies": {
     "@nuxt/types": "^2.15.8",
     "@nuxt/typescript-build": "^2.1.0"
-  }
+  },
+  "name": "app",
+  "private": true,
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt",
+    "dev:docker": "docker build -t fsp-ui-dev -f Dockerfile.dev .; docker run -it --rm --name fsp-ui-dev -v $(pwd):/app:z fsp-ui-dev",
+    "docker-dev-entry": "yarn; yarn dev",
+    "generate": "nuxt generate",
+    "start": "nuxt start"
+  },
+  "version": "1.0.0"
 }

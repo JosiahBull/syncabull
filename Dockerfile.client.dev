@@ -1,28 +1,24 @@
 FROM lukemathwalker/cargo-chef:latest-rust-alpine AS chef
 WORKDIR /app
 
-RUN apk upgrade --update-cache --available && apk add openssl openssl-dev pkgconfig
+RUN apk upgrade --update-cache --available && apk add openssl openssl-dev pkgconfig sqlite-dev && rm -rf /var/cache/apk/*
 
 FROM chef as planner
 COPY . .
+RUN cd api
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --recipe-path recipe.json
+RUN cargo chef cook --recipe-path recipe.json --bin syncabull
 
 # Build application
 COPY . .
-RUN cargo build
+RUN cargo build --bin syncabull
 
 # We do not need the Rust toolchain to run the binary!
 FROM alpine AS runtime
 WORKDIR /app
-COPY --from=builder /app/target/debug/syncabull_api /app/
+COPY --from=builder /app/target/debug/syncabull /app/
 
-ENV HOST 0.0.0.0
-ENV PORT 3000
-
-EXPOSE 3000
-
-CMD [ "/app/syncabull_api" ]
+CMD [ "/app/syncabull" ]

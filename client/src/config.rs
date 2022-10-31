@@ -82,7 +82,10 @@ impl Config {
         database::save_config(connection, self)
     }
 
-    pub fn set_initial_scan_complete(&self, connection: &mut DbConnection) -> Result<(), Box<dyn Error>> {
+    pub fn set_initial_scan_complete(
+        &self,
+        connection: &mut DbConnection,
+    ) -> Result<(), Box<dyn Error>> {
         *self.initial_scan_complete.lock().unwrap() = true;
         database::save_config(connection, self)
     }

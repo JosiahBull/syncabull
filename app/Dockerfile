@@ -9,7 +9,7 @@ RUN yarn \
   --prefer-offline \
   --frozen-lockfile \
   --non-interactive
-  
+
 COPY . .
 
 RUN yarn build

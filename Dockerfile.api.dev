@@ -9,20 +9,20 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --recipe-path recipe.json
+RUN cargo chef cook --recipe-path recipe.json --bin syncabull_api
 
 # Build application
 COPY . .
-RUN cargo build
+RUN cargo build --bin syncabull_api
 
 # We do not need the Rust toolchain to run the binary!
 FROM alpine AS runtime
 WORKDIR /app
-COPY --from=builder /app/target/debug/syncabull /app/
+COPY --from=builder /app/target/debug/syncabull_api /app/
 
 ENV HOST 0.0.0.0
 ENV PORT 3000
 
-EXPOSE 3000
+EXPOSE ${PORT}
 
-CMD [ "/app/syncabull" ]
+CMD [ "/app/syncabull_api" ]

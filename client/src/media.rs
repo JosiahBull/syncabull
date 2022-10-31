@@ -105,8 +105,7 @@ pub(crate) fn get_media_items(
     let res = agent
         .get(&format!(
             "{}/download?reload={}&max_count=20",
-            config.webserver_address,
-            reload
+            config.webserver_address, reload
         ))
         .set(
             "authorization",

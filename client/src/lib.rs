@@ -4,7 +4,14 @@ pub mod database;
 pub mod media;
 pub mod schema;
 
-use std::{collections::VecDeque, time::{Duration, Instant}, sync::{Mutex, atomic::{AtomicBool, Ordering}}};
+use std::{
+    collections::VecDeque,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
+    time::{Duration, Instant},
+};
 
 use database::{establish_connection, run_migrations, DbConnection};
 use log::{error, info, warn};
@@ -29,7 +36,6 @@ pub fn load_new_items(
     processing: &AtomicBool,
     waiting: &AtomicBool,
 ) {
-
     let mut e_backoff = 1;
     let mut last_refresh_time = Instant::now();
     let mut reload = false;
@@ -37,9 +43,7 @@ pub fn load_new_items(
     loop {
         if !processing.load(Ordering::Relaxed) && queue.lock().unwrap().is_empty() {
             let items = match media::get_media_items(config, agent, reload) {
-                Ok(i) => {
-                    i
-                }
+                Ok(i) => i,
                 Err(e) => {
                     error!(
                         "failed to collect media items for download due to error: {}",
@@ -63,19 +67,20 @@ pub fn load_new_items(
             if all_present(&items, *connection.lock().unwrap()) {
                 if !config.initial_scan_complete() {
                     info!("all items are present in the database, initial scan complete");
-                    config.set_initial_scan_complete(*connection.lock().unwrap()).expect("failed to set initial scan complete");
+                    config
+                        .set_initial_scan_complete(*connection.lock().unwrap())
+                        .expect("failed to set initial scan complete");
                 } else {
                     info!("all items are present in the database, no new items to download - sleeping for 15 minutes");
                     waiting.store(true, Ordering::Relaxed);
                     std::thread::sleep(Duration::from_secs(60 * 15));
                 }
-
             }
 
             // if some videos are still processing, we need to wait for them to finish
             if !all_processed(&items) {
                 info!("some videos are still processing, waiting 5 minutes");
-                std::thread::sleep(Duration::from_secs(60*5));
+                std::thread::sleep(Duration::from_secs(60 * 5));
                 reload = true;
                 continue;
             }
@@ -102,19 +107,20 @@ pub fn all_processed(items: &[MediaItem]) -> bool {
                 if let Some(status) = &video_meta.status {
                     match status {
                         shared_libs::json_templates::VideoProcessingStatus::UNSPECIFIED => {
-                            warn!("video {} has unspecified status, assuming it isn't ready", item.id);
-                            return false
-                        },
+                            warn!(
+                                "video {} has unspecified status, assuming it isn't ready",
+                                item.id
+                            );
+                            return false;
+                        }
                         shared_libs::json_templates::VideoProcessingStatus::PROCESSING => {
                             warn!("video {} is still processing", item.id);
-                            return false
-                        },
-                        shared_libs::json_templates::VideoProcessingStatus::READY => {
-                            return true
-                        },
+                            return false;
+                        }
+                        shared_libs::json_templates::VideoProcessingStatus::READY => return true,
                         shared_libs::json_templates::VideoProcessingStatus::FAILED => {
                             panic!("should have been filtered out");
-                        },
+                        }
                     }
                 }
             }
@@ -124,10 +130,7 @@ pub fn all_processed(items: &[MediaItem]) -> bool {
 }
 
 /// check if all items in this queue have already been downloaded
-pub fn all_present(
-    items: &[MediaItem],
-    connection: &mut DbConnection,
-) -> bool {
+pub fn all_present(items: &[MediaItem], connection: &mut DbConnection) -> bool {
     for item in items {
         if !database::in_database(connection, &item.id).unwrap() {
             return false;
@@ -200,10 +203,28 @@ pub fn download_scan(config: &Config, agent: &Agent, database: &mut DbConnection
     // create thread scope
     std::thread::scope(|scope| {
         // load new items
-        scope.spawn(|| load_new_items(config, agent, &database, &download_queue, &processing, &waiting));
+        scope.spawn(|| {
+            load_new_items(
+                config,
+                agent,
+                &database,
+                &download_queue,
+                &processing,
+                &waiting,
+            )
+        });
 
         // download items
-        scope.spawn(|| download_items(config, agent, &database, &download_queue, &processing, &waiting));
+        scope.spawn(|| {
+            download_items(
+                config,
+                agent,
+                &database,
+                &download_queue,
+                &processing,
+                &waiting,
+            )
+        });
     });
 }
 
@@ -218,7 +239,6 @@ pub fn run() {
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let mut database = establish_connection(&database_url).expect("failed to connect to database");
     run_migrations(&mut database).expect("failed to run migrations");
-
 
     let config = Config::load(&agent, &mut database).expect("failed to load config");
 
