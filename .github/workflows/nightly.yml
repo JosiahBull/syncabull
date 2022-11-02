@@ -10,6 +10,7 @@ jobs:
   tagged-release:
     name: "Pre Release"
     runs-on: "ubuntu-latest"
+    permissions: write-all
 
     steps:
       - name: Checkout repository
@@ -36,9 +37,9 @@ jobs:
       - uses: "marvinpinto/action-automatic-releases@latest"
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "latest"
           prerelease: true
-          automatic_release_tag: "dev"
-          title: "Dev Build"
+          title: "Development Build"
           files: |
             license
             readme.md

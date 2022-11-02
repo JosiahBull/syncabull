@@ -19,6 +19,7 @@ pub(crate) fn register(
 ) -> Result<(Id, Passcode), Box<dyn std::error::Error>> {
     let res = agent
         .get(&format!("{}/register", config.webserver_address))
+        .set("x-psk", &config.preshared_key)
         .call()?;
 
     if !(res.status() >= 200 && res.status() < 300) {
