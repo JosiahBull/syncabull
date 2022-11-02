@@ -8,6 +8,10 @@ on:
 
 jobs:
   tagged-release:
+    permissions:
+      contents: read
+      packages: write
+      deployments: write
     name: "Tagged Release"
     runs-on: "ubuntu-latest"
 

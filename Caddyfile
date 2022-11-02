@@ -1,6 +1,6 @@
 {$APP_HOST} {
     log
-    handle_path /api/v1/* {
+    handle_path /api/1/* {
         reverse_proxy http://api:3000
     }
     reverse_proxy http://frontend:3000

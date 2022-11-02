@@ -735,17 +735,14 @@ impl WebServer {
         // every route needs webserver, so lets do that here
         // routes that require authorisation should be done here - avoids accidentally not authorising a route
         // routes shoudl be authorised and rejected here *not* inside of the functions
-        let api_1 = warp::any().and(warp::path("api")).and(warp::path("1")).and(
-            register
-                .or(download)
-                .or(get_auth_url)
-                .or(auth)
-                .or(auth_callback)
-                .or(auth_token_completion)
-                .or(login_check)
-                .or(delete_data),
-        );
-
+        let api_1 = register
+            .or(download)
+            .or(get_auth_url)
+            .or(auth)
+            .or(auth_callback)
+            .or(auth_token_completion)
+            .or(login_check)
+            .or(delete_data);
         let routes = warp::any().and(api_1.or(catcher));
 
         println!(
