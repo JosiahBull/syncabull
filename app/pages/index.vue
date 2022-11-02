@@ -1,5 +1,6 @@
 <template>
   <div>
+    <FloatingBoxes></FloatingBoxes>
 
     <Head></Head>
     <Nav id="nav"></Nav>
@@ -9,11 +10,10 @@
         <h1 class="mx-auto align-middle text-center font-weight-bolder sans">Backup Your <br>Google Photos</h1>
       </b-row>
       <b-row>
-        <LoginButton class="mx-auto align-middle font-weight-bold"></LoginButton>
+        <b-button size="lg" variant="primary" class="font-weight-bold mx-auto align-middle"
+          href="https://github.com/JosiahBull/syncabull#installation">Start Syncing</b-button>
       </b-row>
     </b-container>
-
-    <FloatingBoxes></FloatingBoxes>
 
     <!-- Information about the application -->
     <!-- There is an arrow with "more info" at the bottom of the landing page  -->
@@ -39,7 +39,7 @@
         <b-row>
           <b-col cols="12" md="4" class="mb-4">
             <b-card class="h-100">
-              <b-card-img src="https://picsum.photos/300/200?image=0" alt="Image 0"></b-card-img>
+              <!-- <b-card-img src="https://picsum.photos/300/200?image=0" alt="Image 0"></b-card-img> -->
               <b-card-body>
                 <b-card-title>Open Source</b-card-title>
                 <b-card-text>
@@ -51,7 +51,7 @@
 
           <b-col cols="12" md="4" class="mb-4">
             <b-card class="h-100">
-              <b-card-img src="https://picsum.photos/300/200?image=1" alt="Image 1"></b-card-img>
+              <!-- <b-card-img src="https://picsum.photos/300/200?image=1" alt="Image 1"></b-card-img> -->
               <b-card-body>
                 <b-card-title>Secure, and Encrypted</b-card-title>
                 <b-card-text>
@@ -63,7 +63,7 @@
 
           <b-col cols="12" md="4" class="mb-4">
             <b-card class="h-100">
-              <b-card-img src="https://picsum.photos/300/200?image=2" alt="Image 2"></b-card-img>
+              <!-- <b-card-img src="https://picsum.photos/300/200?image=2" alt="Image 2"></b-card-img> -->
               <b-card-body>
                 <b-card-title>Self Hostable</b-card-title>
                 <b-card-text>
@@ -77,7 +77,7 @@
         <b-row>
           <b-col cols="12" md="4" class="mb-4">
             <b-card class="h-100">
-              <b-card-img src="https://picsum.photos/300/200?image=0" alt="Image 0"></b-card-img>
+              <!-- <b-card-img src="https://picsum.photos/300/200?image=0" alt="Image 0"></b-card-img> -->
               <b-card-body>
                 <b-card-title>Powered by Rust and Docker</b-card-title>
                 <b-card-text>
@@ -89,11 +89,12 @@
 
           <b-col cols="12" md="4" class="mb-4">
             <b-card class="h-100">
-              <b-card-img src="https://picsum.photos/300/200?image=1" alt="Image 1"></b-card-img>
+              <!-- <b-card-img src="https://picsum.photos/300/200?image=1" alt="Image 1"></b-card-img> -->
               <b-card-body>
                 <b-card-title>Fast and Stable</b-card-title>
                 <b-card-text>
-                  We have committed to a thorough testing process to ensure high levels of uptime. Your backups will always be safe.
+                  We have committed to a thorough testing process to ensure high levels of uptime. Your backups will
+                  always be safe.
                 </b-card-text>
               </b-card-body>
             </b-card>
@@ -101,11 +102,12 @@
 
           <b-col cols="12" md="4" class="mb-4">
             <b-card class="h-100">
-              <b-card-img src="https://picsum.photos/300/200?image=2" alt="Image 2"></b-card-img>
+              <!-- <b-card-img src="https://picsum.photos/300/200?image=2" alt="Image 2"></b-card-img> -->
               <b-card-body>
                 <b-card-title>Filter Duplicates</b-card-title>
                 <b-card-text>
-                  We won't store duplicate images in your backup. We'll only store the highest quality version of each image.
+                  We won't store duplicate images in your backup. We'll only store the highest quality version of each
+                  image.
                 </b-card-text>
               </b-card-body>
             </b-card>
@@ -122,7 +124,6 @@
 <script>
 import FloatingBoxes from '~/components/FloatingBoxes.vue';
 import Vue from 'vue'
-import LoginButton from '~/components/LoginButton.vue';
 
 function vertCentHero(element) {
   const window_height = window.innerHeight;
@@ -137,7 +138,7 @@ export default Vue.extend({
     vertCentHero(el);
     window.addEventListener("resize", vertCentHero.bind(null, el));
   },
-  components: { LoginButton, FloatingBoxes },
+  components: { FloatingBoxes },
   methods: {
     onClickScroll: function (element) {
       const el = document.querySelector(element);

@@ -11,9 +11,9 @@
       <b-nav-item href="https://github.com/JosiahBull/syncabull/"><b-icon icon="github" font-scale="1.5" class="mr-1"></b-icon> Repository </b-nav-item>
     </b-navbar-nav>
 
-    <!-- TODO: UPDATE this to respect logged in vs not -->
     <b-navbar-nav class="ml-auto">
-      <LoginButton></LoginButton>
+      <b-button size="lg" variant="primary" class="font-weight-bold mx-auto align-middle"
+          href="https://github.com/JosiahBull/syncabull#installation">Start Syncing</b-button>
     </b-navbar-nav>
   </b-navbar>
 </div>
