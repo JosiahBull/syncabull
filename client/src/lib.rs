@@ -37,7 +37,7 @@ pub fn load_new_items(
 ) {
     let mut e_backoff = 1;
     let mut last_refresh_time = Instant::now();
-    let mut reload = false;
+    let mut reload = true; //first request should always try to reload if possible
 
     loop {
         if !processing.load(Ordering::Relaxed) && queue.lock().unwrap().is_empty() {
@@ -77,12 +77,12 @@ pub fn load_new_items(
             }
 
             // if some videos are still processing, we need to wait for them to finish
-            if !all_processed(&items) {
-                info!("some videos are still processing, waiting 5 minutes");
-                std::thread::sleep(Duration::from_secs(60 * 5));
-                reload = true;
-                continue;
-            }
+            // if !all_processed(&items) {
+            //     info!("some videos are still processing, waiting 5 minutes");
+            //     std::thread::sleep(Duration::from_secs(60 * 5));
+            //     reload = true;
+            //     continue;
+            // }
 
             queue.lock().unwrap().extend(items);
         }
@@ -113,7 +113,7 @@ pub fn all_processed(items: &[MediaItem]) -> bool {
                             return false;
                         }
                         shared_libs::json_templates::VideoProcessingStatus::PROCESSING => {
-                            warn!("video {} is still processing", item.baseUrl);
+                            warn!("video {} is still processing", item.productUrl);
                             return false;
                         }
                         shared_libs::json_templates::VideoProcessingStatus::READY => return true,
@@ -168,6 +168,7 @@ pub fn download_items(
             }
 
             info!("downloading {}", item.baseUrl);
+            item.download_success = false;
             item.download_attempts += 1;
             if media::download_item(config, agent, &item).is_ok() {
                 info!("download successful");

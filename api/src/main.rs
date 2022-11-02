@@ -18,7 +18,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-const STORE_PATH: &str = "store.json";
+const STORE_PATH: &str = "data/store.json";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct GoogleAuth {
@@ -86,6 +86,9 @@ async fn main() {
     state.psk = psk;
 
     let state = Arc::new(RwLock::new(state));
+
+    // create store path if it doesn't exist
+    tokio::fs::create_dir_all("data").await.unwrap();
 
     // Extremely dirty solution which looks to save database data to the disk every 60 seconds
     println!("database loader setup");

@@ -155,7 +155,9 @@ pub(crate) fn download_item(
         )));
     }
 
-    let tmp_dir = tempfile::Builder::new().prefix("syncabull-").tempdir()?;
+    let tmp_dir = tempfile::Builder::new()
+        .prefix("google_photos")
+        .tempdir_in(&config.temp_path)?;
     let mut dest = {
         let fname = tmp_dir.path().join(&file_name);
         info!("will be located under: '{:?}'", fname);
@@ -181,6 +183,7 @@ pub(crate) fn download_item(
             tmp_dir.path().join(&file_name),
             config.store_path.join(&file_name),
         )?;
+        std::fs::remove_file(tmp_dir.path().join(&file_name))?;
     }
 
     Ok(())

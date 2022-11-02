@@ -9,6 +9,8 @@ use ureq::Agent;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
+    /// Temporary location to store media while downloading
+    pub temp_path: PathBuf,
     /// The location to store downloaded media
     pub store_path: PathBuf,
     /// Whether we have been authenticated

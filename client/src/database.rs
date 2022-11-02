@@ -254,6 +254,11 @@ pub fn load_config(connection: &mut DbConnection) -> Result<Config, Box<dyn Erro
         Err(_) => PathBuf::from(r.get("store_path").unwrap()),
     };
 
+    let temp_path = match std::env::var("TEMP_PATH") {
+        Ok(s) => PathBuf::from(s),
+        Err(_) => PathBuf::from(r.get("temp_path").unwrap()),
+    };
+
     // if authenticated not present == false
     let authenticated = match std::env::var("AUTHENTICATED") {
         Ok(s) => s == "true",
@@ -298,6 +303,7 @@ pub fn load_config(connection: &mut DbConnection) -> Result<Config, Box<dyn Erro
         webserver_address,
         preshared_key,
         initial_scan_complete,
+        temp_path,
     })
 }
 
