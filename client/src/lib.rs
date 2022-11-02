@@ -73,7 +73,7 @@ pub fn load_new_items(
                 } else {
                     info!("all items are present in the database, no new items to download - sleeping for 15 minutes");
                     waiting.store(true, Ordering::Relaxed);
-                    std::thread::sleep(Duration::from_secs(60 * 15));
+                    std::thread::sleep(Duration::from_secs(60 * 30));
                 }
             }
 

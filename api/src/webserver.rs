@@ -199,6 +199,12 @@ pub fn with_auth(
         .and_then(WebServer::login)
 }
 
+pub fn with_psk(server: Arc<WebServer>) -> impl Filter<Extract = ((),), Error = Rejection> + Clone {
+    warp::header::value("x-psk")
+        .and(with(server))
+        .and_then(WebServer::psk)
+}
+
 impl WebServer {
     pub fn builder() -> WebServerBuilder {
         WebServerBuilder::default()
@@ -278,7 +284,22 @@ impl WebServer {
         Ok(username)
     }
 
-    pub async fn register(webserver: Arc<WebServer>) -> Result<impl Reply, Infallible> {
+    async fn psk(psk: HeaderValue, webserver: Arc<WebServer>) -> Result<(), Rejection> {
+        let psk = psk.to_str().map_err(|e| {
+            CustomError::new(format!("Invalid token: {}", e), StatusCode::BAD_REQUEST)
+        })?;
+
+        if psk != webserver.state.read().await.psk {
+            return Err(warp::reject::custom(CustomError::new(
+                String::from("invalid psk"),
+                StatusCode::UNAUTHORIZED,
+            )));
+        }
+
+        Ok(())
+    }
+
+    pub async fn register(webserver: Arc<WebServer>, _: ()) -> Result<impl Reply, Infallible> {
         let mut writer = webserver.state.write().await;
 
         let mut auth: Credentials;
@@ -630,6 +651,7 @@ impl WebServer {
             .and(warp::path("register"))
             .and(warp::path::end())
             .and(with(webserver.clone()))
+            .and(with_psk(webserver.clone()))
             .and_then(WebServer::register)
             .recover(handle_custom_error);
 

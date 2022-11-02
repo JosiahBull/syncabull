@@ -19,6 +19,9 @@ jobs:
           - context: .
             file: Dockerfile.client
             image: syncabull
+          - context: ./app
+            file: ./app/Dockerfile
+            image: syncabull-web
     permissions:
       contents: read
       packages: write

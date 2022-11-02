@@ -1,0 +1,45 @@
+version: '3'
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - APP_HOST
+    depends_on:
+      - frontend
+      - api
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:z
+      - caddy-data:/data
+
+  frontend:
+    image: ghcr.io/JosiahBull/syncabull-web:main
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      - PORT=3000
+      - HOST=0.0.0.0
+      - SSR_BASE_URL=http://api:3000/
+      - BROWSER_BASE_URL=https://${APP_HOST}
+
+  api:
+    image: ghcr.io/JosiahBull/syncabull-api:main
+    restart: unless-stopped
+    environment:
+      - PORT=3000
+      - HOST=0.0.0.0
+      - BROWSER_BASE_URL=http://${APP_HOST:-localhost}/api/v1
+      - GOOGLE_CLIENT_ID
+      - GOOGLE_CLIENT_SECRET
+      - PSK
+    volumes:
+      - sqlite-db-data:/data
+
+volumes:
+  sqlite-db-data:
+  caddy-data:

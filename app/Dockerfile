@@ -1,4 +1,4 @@
-FROM node:lts as builder
+FROM node:16-alpine3.16 as builder
 
 WORKDIR /app
 
@@ -13,12 +13,6 @@ RUN yarn \
 COPY . .
 
 RUN yarn build
-
-FROM node:lts
-
-WORKDIR /app
-
-COPY --from=builder /app  .
 
 ENV HOST 0.0.0.0
 ENV PORT 3000

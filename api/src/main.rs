@@ -54,6 +54,7 @@ pub struct AppState {
     users: HashMap<String, UserData>,
     auth_keys: HashMap<String, Token>,
     unclaimed_auth_tokens: HashMap<String, GoogleAuth>,
+    psk: String,
 }
 
 impl AppState {
@@ -73,12 +74,15 @@ impl AppState {
 async fn main() {
     dotenv::dotenv().ok();
 
+    let psk = env::var("PSK").expect("PSK must be set");
+
     println!("starting api");
     println!("loading state");
-    let state = match tokio::fs::metadata(path::Path::new(STORE_PATH)).await {
+    let mut state = match tokio::fs::metadata(path::Path::new(STORE_PATH)).await {
         Ok(_) => AppState::from_disk(path::PathBuf::from(STORE_PATH)).await,
         Err(_) => AppState::default(),
     };
+    state.psk = psk;
 
     let state = Arc::new(RwLock::new(state));
 

@@ -1,0 +1,48 @@
+version: '3'
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:80"
+    environment:
+      APP_HOST: ":80"
+    depends_on:
+      - frontend
+      - api
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:z
+      - caddy-data:/data
+
+  frontend:
+    build:
+      context: ./app
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    environment:
+      - PORT=3000
+      - HOST=0.0.0.0
+      - SSR_BASE_URL=http://api:3000/
+      - BROWSER_BASE_URL=http://${APP_HOST:-localhost}:${APP_PORT:-3000}/api/v1
+    volumes:
+      - ./app:/app:z
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api.dev
+    restart: unless-stopped
+    environment:
+      - PORT=3000
+      - HOST=0.0.0.0
+      - BROWSER_BASE_URL=http://${APP_HOST:-localhost}:${APP_PORT:-3000}/api/v1
+      - GOOGLE_CLIENT_ID
+      - GOOGLE_CLIENT_SECRET
+      - PSK
+    volumes:
+      - sqlite-db-data:/data
+
+volumes:
+  sqlite-db-data:
+  caddy-data:
