@@ -2,7 +2,17 @@
 
 A small website + api which allows clients to download data from their google photos.
 
-<!-- #TODO:
-# - setup a proper README
-# - setup a docker-compose file, with all relevant details
-# - ensure that docker-compose allows for proper config to be saved with custom volumes setup
+## Installation
+
+```bash
+# Server
+cp .example.env .env
+nano .env
+docker-compose --env-file .env up -d && docker-compose logs -f
+
+# Client
+cd client
+cp .example.env .env
+export $(grep -v '^#' .env | xargs)
+cargo run --release
+```
