@@ -1,10 +1,10 @@
-FROM lukemathwalker/cargo-chef:latest-rust-alpine AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1 AS chef
 WORKDIR /app
 
-RUN rustup toolchain install nightly-x86_64-unknown-linux-musl
-RUN rustup component add rust-src --toolchain nightly-x86_64-unknown-linux-musl
+RUN rustup toolchain install nightly-x86_64-unknown-linux-gnu
+RUN rustup component add rust-src --toolchain nightly-x86_64-unknown-linux-gnu
 
-RUN apk upgrade --update-cache --available && apk add openssl openssl-dev pkgconfig
+RUN apt-get update && apt-get install -y openssl libssl-dev pkg-config
 
 FROM chef as planner
 COPY . .
@@ -12,16 +12,18 @@ RUN cargo +nightly chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo +nightly chef cook --profile production --target x86_64-unknown-linux-musl --recipe-path recipe.json --bin syncabull_api
+RUN cargo +nightly chef cook --profile production --target x86_64-unknown-linux-gnu --recipe-path recipe.json --bin syncabull_api
 
 # Build application
 COPY . .
-RUN cargo +nightly build -Z build-std=std,panic_abort --target x86_64-unknown-linux-musl --profile production --bin syncabull_api
+RUN cargo +nightly build -Z build-std=std,panic_abort --target x86_64-unknown-linux-gnu --profile production --bin syncabull_api
 
 # We do not need the Rust toolchain to run the binary!
-FROM alpine AS runtime
+FROM debian:buster-slim AS runtime
+RUN apt-get update && apt-get install -y openssl ca-certificates
 WORKDIR /app
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/production/syncabull_api /app/
+
+COPY --from=builder /app/target/x86_64-unknown-linux-gnu/production/syncabull_api /app/
 COPY --from=builder /app/api/www/dynamic/* /app/www/dynamic/
 
 ENV HOST 0.0.0.0
