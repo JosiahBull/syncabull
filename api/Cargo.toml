@@ -45,4 +45,4 @@ sha2 = "0.10.6"
 
 # Logging
 log = "0.4.17"
-fern = { version = "0.6.1", features = ["colored", "date-based"] }
+pretty_env_logger = { git = "https://github.com/JosiahBull/reduced-pretty-env-logger" }

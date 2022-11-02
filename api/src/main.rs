@@ -72,6 +72,7 @@ impl AppState {
 
 #[tokio::main]
 async fn main() {
+    pretty_env_logger::init();
     dotenv::dotenv().ok();
 
     let psk = env::var("PSK").expect("PSK must be set");

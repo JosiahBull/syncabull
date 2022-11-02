@@ -113,7 +113,7 @@ pub fn all_processed(items: &[MediaItem]) -> bool {
                             return false;
                         }
                         shared_libs::json_templates::VideoProcessingStatus::PROCESSING => {
-                            warn!("video {} is still processing", item.id);
+                            warn!("video {} is still processing", item.baseUrl);
                             return false;
                         }
                         shared_libs::json_templates::VideoProcessingStatus::READY => return true,
