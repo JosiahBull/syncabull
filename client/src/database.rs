@@ -251,12 +251,12 @@ pub fn load_config(connection: &mut DbConnection) -> Result<Config, Box<dyn Erro
     // otherwise pull it from the database and pass that into the config
     let store_path = match std::env::var("STORE_PATH") {
         Ok(s) => PathBuf::from(s),
-        Err(_) => PathBuf::from(r.get("store_path").unwrap()),
+        Err(_) => PathBuf::from(r.get("store_path").expect("store_path not found in config")),
     };
 
     let temp_path = match std::env::var("TEMP_PATH") {
         Ok(s) => PathBuf::from(s),
-        Err(_) => PathBuf::from(r.get("temp_path").unwrap()),
+        Err(_) => PathBuf::from(r.get("temp_path").expect("temp_path not found in config")),
     };
 
     // if authenticated not present == false

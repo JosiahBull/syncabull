@@ -1,5 +1,5 @@
 use crate::{config::Config, Id, Passcode};
-use log::{error, info};
+use log::{error, info, trace};
 use serde::{Deserialize, Serialize};
 use shared_libs::json_templates::MediaItem;
 use std::{fs::File, time::Duration};
@@ -17,10 +17,26 @@ pub(crate) fn register(
     config: &Config,
     agent: &Agent,
 ) -> Result<(Id, Passcode), Box<dyn std::error::Error>> {
-    let res = agent
-        .get(&format!("{}/register", config.webserver_address))
-        .set("x-psk", &config.preshared_key)
-        .call()?;
+    let url = format!("{}/register", config.webserver_address);
+    trace!("registering with server at address: {}", &url);
+    let res = agent.get(&url).set("x-psk", &config.preshared_key).call();
+
+    trace!("got registration response");
+
+    let res = match res {
+        Ok(r) => r,
+        Err(e) => {
+            if let Some(r) = e.into_response() {
+                trace!("parsing error response");
+                r
+            } else {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "unable to get media items",
+                )));
+            }
+        }
+    };
 
     if !(res.status() >= 200 && res.status() < 300) {
         return Err(Box::new(std::io::Error::new(
@@ -29,7 +45,12 @@ pub(crate) fn register(
         )));
     }
 
+    trace!("parsing registration response");
+
     let body: Register = res.into_json()?;
+
+    trace!("registration response parsed");
+
     Ok((body.id, body.passcode))
 }
 
@@ -38,6 +59,8 @@ pub(crate) fn get_auth_url(
     config: &Config,
     agent: &Agent,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    trace!("getting auth url");
+
     let res = agent
         .get(&format!("{}/auth_url", config.webserver_address))
         .set(
@@ -51,7 +74,24 @@ pub(crate) fn get_auth_url(
                 ))
             ),
         )
-        .call()?;
+        .call();
+
+    trace!("got auth url from server");
+
+    let res = match res {
+        Ok(r) => r,
+        Err(e) => {
+            if let Some(r) = e.into_response() {
+                trace!("parsing error response");
+                r
+            } else {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "unable to get media items",
+                )));
+            }
+        }
+    };
 
     if !(res.status() >= 200 && res.status() < 300) {
         error!("unable to get auth url from api: {}", res.status());
@@ -62,6 +102,8 @@ pub(crate) fn get_auth_url(
         )));
     }
 
+    trace!("parsing auth url response");
+
     Ok(res.into_string()?)
 }
 
@@ -70,6 +112,8 @@ pub(crate) fn await_user_authentication(
     config: &Config,
     agent: &Agent,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    trace!("awaiting user authentication");
+
     let res = agent
         .get(&format!("{}/is_logged_in", config.webserver_address))
         .set(
@@ -84,7 +128,24 @@ pub(crate) fn await_user_authentication(
             ),
         )
         .timeout(Duration::from_secs(120))
-        .call()?;
+        .call();
+
+    trace!("got response from server");
+
+    let res = match res {
+        Ok(r) => r,
+        Err(e) => {
+            if let Some(r) = e.into_response() {
+                trace!("parsing error response");
+                r
+            } else {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "unable to get media items",
+                )));
+            }
+        }
+    };
 
     if !(res.status() >= 200 && res.status() < 300) {
         error!("unable to get auth url: {}", res.status());
@@ -95,6 +156,8 @@ pub(crate) fn await_user_authentication(
         )));
     }
 
+    trace!("user authenticated");
+
     Ok(())
 }
 
@@ -103,11 +166,16 @@ pub(crate) fn get_media_items(
     agent: &Agent,
     reload: bool,
 ) -> Result<Vec<MediaItem>, Box<dyn std::error::Error>> {
+    let url = format!(
+        "{}/download?reload={}&max_count=50",
+        config.webserver_address, reload
+    );
+
+    trace!("getting media items");
+    trace!("url: {}", url);
+
     let res = agent
-        .get(&format!(
-            "{}/download?reload={}&max_count=50",
-            config.webserver_address, reload
-        ))
+        .get(&url)
         .set(
             "authorization",
             &format!(
@@ -121,10 +189,13 @@ pub(crate) fn get_media_items(
         )
         .call();
 
+    trace!("got media items");
+
     let res = match res {
         Ok(r) => r,
         Err(e) => {
             if let Some(r) = e.into_response() {
+                trace!("parsing error response");
                 r
             } else {
                 return Err(Box::new(std::io::Error::new(
@@ -146,7 +217,12 @@ pub(crate) fn get_media_items(
         )));
     }
 
+    trace!("parsing media items");
+
     let body = res.into_json()?;
+
+    trace!("parsed media items");
+
     Ok(body)
 }
 
@@ -155,6 +231,7 @@ pub(crate) fn download_item(
     agent: &Agent,
     item: &MediaItem,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    trace!("downloading item: {:?}", item);
     let file_name = &item.id;
 
     let param = match item.mimeType {
@@ -164,7 +241,25 @@ pub(crate) fn download_item(
 
     let url = format!("{}={}", &item.baseUrl, param);
 
-    let res = agent.get(&url).call()?;
+    trace!("downloading item: {} with param: {}", item.id, param);
+    trace!("url: {}", &url);
+
+    let res = agent.get(&url).call();
+
+    let res = match res {
+        Ok(r) => r,
+        Err(e) => {
+            if let Some(r) = e.into_response() {
+                trace!("parsing error response");
+                r
+            } else {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "unable to get media items",
+                )));
+            }
+        }
+    };
 
     if !(res.status() >= 200 && res.status() < 300) {
         //print response body
@@ -177,6 +272,12 @@ pub(crate) fn download_item(
         )));
     }
 
+    // if config.temp_path doesn't exist - create it
+    if !config.temp_path.exists() {
+        trace!("creating temp path: {:?}", config.temp_path);
+        std::fs::create_dir_all(&config.temp_path)?;
+    }
+
     let tmp_dir = tempfile::Builder::new()
         .prefix("google_photos")
         .tempdir_in(&config.temp_path)?;
@@ -186,12 +287,20 @@ pub(crate) fn download_item(
         File::create(fname)?
     };
 
-    let mut reader = res.into_reader();
+    trace!(
+        "writing to temp dir {:?} with final dest {:?}",
+        &tmp_dir,
+        &dest
+    );
 
+    let mut reader = res.into_reader();
     std::io::copy(&mut reader, &mut dest)?;
+
+    trace!("moving to final destination");
 
     // if dest does not exist, create it
     if !config.store_path.exists() {
+        trace!("creating store path: {:?}", &config.store_path);
         std::fs::create_dir_all(&config.store_path)?;
     }
 
@@ -207,6 +316,9 @@ pub(crate) fn download_item(
         )?;
         std::fs::remove_file(tmp_dir.path().join(&file_name))?;
     }
+
+    trace!("removing temp dir");
+    tmp_dir.close()?;
 
     Ok(())
 }
