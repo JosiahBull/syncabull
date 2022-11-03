@@ -87,6 +87,7 @@ pub struct MediaItem {
 
 #[derive(Deserialize)]
 pub struct GetMediaItems {
+    #[serde(default)]
     pub mediaItems: Vec<MediaItem>,
     pub nextPageToken: Option<String>,
 }

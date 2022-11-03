@@ -105,7 +105,7 @@ pub(crate) fn get_media_items(
 ) -> Result<Vec<MediaItem>, Box<dyn std::error::Error>> {
     let res = agent
         .get(&format!(
-            "{}/download?reload={}&max_count=20",
+            "{}/download?reload={}&max_count=50",
             config.webserver_address, reload
         ))
         .set(
