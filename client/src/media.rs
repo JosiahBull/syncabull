@@ -119,9 +119,27 @@ pub(crate) fn get_media_items(
                 ))
             ),
         )
-        .call()?;
+        .call();
+
+    let res = match res {
+        Ok(r) => r,
+        Err(e) => {
+            if let Some(r) = e.into_response() {
+                r
+            } else {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "unable to get media items",
+                )));
+            }
+        }
+    };
 
     if !(res.status() >= 200 && res.status() < 300) {
+        //print response body
+        error!("unable to download media item: {}", res.status());
+        error!("body: {}", res.into_string()?);
+
         return Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
             "unable to get media items",
@@ -149,6 +167,10 @@ pub(crate) fn download_item(
     let res = agent.get(&url).call()?;
 
     if !(res.status() >= 200 && res.status() < 300) {
+        //print response body
+        error!("unable to download media item: {}", res.status());
+        error!("body: {}", res.into_string()?);
+
         return Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
             "unable to download item",

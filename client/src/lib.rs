@@ -13,7 +13,7 @@ use std::{
 };
 
 use database::{establish_connection, run_migrations, DbConnection};
-use log::{error, info, warn};
+use log::{error, info};
 use shared_libs::json_templates::MediaItem;
 use ureq::Agent;
 
@@ -60,8 +60,6 @@ pub fn load_new_items(
 
             e_backoff = 1;
             last_refresh_time = Instant::now();
-            waiting.store(false, Ordering::Relaxed);
-            reload = false;
 
             if all_present(&items, *connection.lock().unwrap()) {
                 if !config.initial_scan_complete() {
@@ -76,15 +74,9 @@ pub fn load_new_items(
                 }
             }
 
-            // if some videos are still processing, we need to wait for them to finish
-            // if !all_processed(&items) {
-            //     info!("some videos are still processing, waiting 5 minutes");
-            //     std::thread::sleep(Duration::from_secs(60 * 5));
-            //     reload = true;
-            //     continue;
-            // }
-
             queue.lock().unwrap().extend(items);
+            waiting.store(false, Ordering::Relaxed);
+            reload = false;
         }
 
         // if last refresh > 50 minutes, recollect all media items
@@ -95,37 +87,6 @@ pub fn load_new_items(
             continue;
         }
     }
-}
-
-/// extract all items that are still processing into a separate queue
-pub fn all_processed(items: &[MediaItem]) -> bool {
-    // check if all items are ready
-    items.iter().all(|item| {
-        if let Some(meta) = &item.mediaMetadata {
-            if let Some(video_meta) = &meta.video {
-                if let Some(status) = &video_meta.status {
-                    match status {
-                        shared_libs::json_templates::VideoProcessingStatus::UNSPECIFIED => {
-                            warn!(
-                                "video {} has unspecified status, assuming it isn't ready",
-                                item.id
-                            );
-                            return false;
-                        }
-                        shared_libs::json_templates::VideoProcessingStatus::PROCESSING => {
-                            warn!("video {} is still processing", item.productUrl);
-                            return false;
-                        }
-                        shared_libs::json_templates::VideoProcessingStatus::READY => return true,
-                        shared_libs::json_templates::VideoProcessingStatus::FAILED => {
-                            panic!("should have been filtered out");
-                        }
-                    }
-                }
-            }
-        }
-        true
-    })
 }
 
 /// check if all items in this queue have already been downloaded
@@ -229,7 +190,6 @@ pub fn download_scan(config: &Config, agent: &Agent, database: &mut DbConnection
 }
 
 pub fn run() {
-    //XXX: api rate limits, we need to be aware of them
     //XXX: adjustable scan times
     //XXX: Testing
 

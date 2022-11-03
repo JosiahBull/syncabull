@@ -78,9 +78,16 @@ impl PhotoScanner {
             )));
         }
 
-        let body: GetMediaItems = match response.json().await {
+        let body_str = response.text().await?;
+
+        let body: GetMediaItems = match serde_json::from_str(&body_str) {
             Ok(body) => body,
-            Err(e) => return Err(ScanningError::InternalFailure(format!("{}", e))),
+            Err(e) => {
+                return Err(ScanningError::InternalFailure(format!(
+                    "{}\n{}",
+                    body_str, e
+                )))
+            }
         };
 
         Ok(body)
