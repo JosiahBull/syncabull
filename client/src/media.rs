@@ -171,7 +171,7 @@ pub(crate) fn get_media_items(
     reload: bool,
 ) -> Result<Vec<MediaItem>, Box<dyn std::error::Error>> {
     let url = format!(
-        "{}/download?reload={}&max_count=50",
+        "{}/download?reload={}&max_count=25",
         config.webserver_address, reload
     );
 

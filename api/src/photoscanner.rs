@@ -40,7 +40,7 @@ pub struct PhotoScanner {
 
 impl PhotoScanner {
     pub fn new() -> Self {
-        Self { timeout_ms: 5000 }
+        Self { timeout_ms: 20_000 }
     }
 
     pub async fn scan(

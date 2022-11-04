@@ -37,7 +37,9 @@ pub fn load_new_items(
 ) {
     let mut e_backoff = 1;
     let mut last_refresh_time = Instant::now();
-    let mut reload = true; //first request should always try to reload if possible
+    // first request should always try to reload if possible, but only if the initial scan has
+    // been completed
+    let mut reload = config.initial_scan_complete();
 
     loop {
         if !processing.load(Ordering::Relaxed) && queue.lock().unwrap().is_empty() {
@@ -81,10 +83,22 @@ pub fn load_new_items(
 
         // if last refresh > 50 minutes, recollect all media items
         if last_refresh_time.elapsed().as_secs() > (60 * 50) {
-            info!("refreshing media items");
-            queue.lock().unwrap().clear();
-            reload = true;
-            continue;
+            if config.initial_scan_complete() {
+                info!("refreshing media items");
+                queue.lock().unwrap().clear();
+                reload = true;
+            } else {
+                error!(
+                    "initial scan not complete, but 50 minutes have passed, this should not happen"
+                );
+                let lock = queue.lock().unwrap();
+                for item in lock.iter() {
+                    match database::save_media_item(*connection.lock().unwrap(), item) {
+                        Ok(_) => info!("saved media item to database"),
+                        Err(e) => error!("failed to save media item to database {}", e),
+                    }
+                }
+            }
         }
     }
 }
