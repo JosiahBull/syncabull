@@ -2,7 +2,11 @@ use crate::{config::Config, Id, Passcode};
 use log::{error, info, trace};
 use serde::{Deserialize, Serialize};
 use shared_libs::json_templates::MediaItem;
-use std::{fs::File, time::Duration};
+use std::{
+    fs::File,
+    io::Write,
+    time::{Duration, Instant},
+};
 use ureq::Agent;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -294,7 +298,34 @@ pub(crate) fn download_item(
     );
 
     let mut reader = res.into_reader();
-    std::io::copy(&mut reader, &mut dest)?;
+
+    // copy in chunks, respecting a rate limit if present
+    // we limit in 100ms timeframes, with a max chunk size of 512 bytes
+    let mut total_bytes = 0;
+    let mut time = Instant::now();
+    let mut buf = [0; 512];
+    loop {
+        let bytes = reader.read(&mut buf)?;
+        if bytes == 0 {
+            break;
+        }
+        dest.write_all(&buf[..bytes])?;
+        total_bytes += bytes;
+
+        if config.max_download_speed > 0
+            && total_bytes / 100 > config.max_download_speed as usize / 100
+        {
+            // if we are under a second, sleep for the remaining time
+            if time.elapsed().as_millis() < 100 {
+                let remaining = 100_000 - time.elapsed().as_micros();
+                std::thread::sleep(Duration::from_micros(
+                    remaining.try_into().unwrap_or(u64::MAX),
+                ));
+            }
+            time = Instant::now();
+            total_bytes = 0;
+        }
+    }
 
     trace!("moving to final destination");
 

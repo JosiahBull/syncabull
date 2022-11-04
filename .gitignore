@@ -1,5 +1,6 @@
 /api/target
 /api/store.json
+tmp/
 
 /client/target
 target/

@@ -25,6 +25,8 @@ pub struct Config {
     pub preshared_key: String,
     /// Whether we have completed the initial scan for this account yet
     pub initial_scan_complete: Mutex<bool>,
+    /// The maximum number of bytes/sec
+    pub max_download_speed: u64,
 }
 
 impl Config {

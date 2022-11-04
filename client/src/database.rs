@@ -295,6 +295,15 @@ pub fn load_config(connection: &mut DbConnection) -> Result<Config, Box<dyn Erro
     };
     let initial_scan_complete = Mutex::new(initial_scan_complete);
 
+    let max_download_speed = match std::env::var("MAX_DOWNLOAD_SPEED") {
+        Ok(s) => s.parse::<u64>().unwrap(),
+        Err(_) => r
+            .get("max_download_speed")
+            .unwrap_or(&String::from("0"))
+            .parse::<u64>()
+            .unwrap(),
+    };
+
     Ok(Config {
         store_path,
         authenticated,
@@ -304,6 +313,7 @@ pub fn load_config(connection: &mut DbConnection) -> Result<Config, Box<dyn Erro
         preshared_key,
         initial_scan_complete,
         temp_path,
+        max_download_speed,
     })
 }
 
