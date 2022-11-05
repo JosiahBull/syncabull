@@ -7,30 +7,31 @@ use std::{
     collections::VecDeque,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Mutex,
+        Arc,
     },
     time::{Duration, Instant},
 };
 
 use database::{establish_connection, run_migrations, DbConnection};
-use log::{error, info};
+use log::{debug, error, info};
+use reqwest::Client;
 use shared_libs::json_templates::MediaItem;
-use ureq::Agent;
+use tokio::sync::Mutex;
 
 use crate::config::Config;
 
 type Id = String;
 type Passcode = String;
 
-pub fn agent() -> Agent {
-    Agent::new()
+pub fn agent() -> Client {
+    Client::new()
 }
 
 /// Load new items from the server for download :)
-pub fn load_new_items(
+pub async fn load_new_items(
     config: &Config,
-    agent: &Agent,
-    connection: &Mutex<&mut DbConnection>,
+    agent: &Client,
+    connection: Arc<Mutex<DbConnection>>,
     queue: &Mutex<VecDeque<MediaItem>>,
     processing: &AtomicBool,
     waiting: &AtomicBool,
@@ -42,8 +43,8 @@ pub fn load_new_items(
     let mut reload = config.initial_scan_complete();
 
     loop {
-        if !processing.load(Ordering::Relaxed) && queue.lock().unwrap().is_empty() {
-            let items = match media::get_media_items(config, agent, reload) {
+        if !processing.load(Ordering::Relaxed) && queue.lock().await.is_empty() {
+            let items = match media::get_media_items(config, agent, reload).await {
                 Ok(i) => i,
                 Err(e) => {
                     error!(
@@ -51,7 +52,7 @@ pub fn load_new_items(
                         e
                     );
                     error!("retrying in {} seconds", e_backoff);
-                    std::thread::sleep(Duration::from_secs(e_backoff));
+                    tokio::time::sleep(Duration::from_secs(e_backoff)).await;
                     e_backoff *= 2;
                     if e_backoff > 1800 {
                         e_backoff = 1800;
@@ -63,43 +64,60 @@ pub fn load_new_items(
             e_backoff = 1;
             last_refresh_time = Instant::now();
 
-            if all_present(&items, *connection.lock().unwrap()) {
+            if items.is_empty() {
+                info!("api returned no new items to download");
+                continue;
+            }
+
+            if all_present(&items, &mut *connection.lock().await) {
                 if !config.initial_scan_complete() {
                     info!("all items are present in the database, initial scan complete");
                     config
-                        .set_initial_scan_complete(*connection.lock().unwrap())
+                        .set_initial_scan_complete(&mut *connection.lock().await)
                         .expect("failed to set initial scan complete");
                 } else {
                     info!("all items are present in the database, no new items to download - sleeping for 15 minutes");
                     waiting.store(true, Ordering::Relaxed);
-                    std::thread::sleep(Duration::from_secs(60 * 30));
+                    tokio::time::sleep(Duration::from_secs(60 * 30)).await;
                 }
             }
 
-            queue.lock().unwrap().extend(items);
+            queue.lock().await.extend(items);
             waiting.store(false, Ordering::Relaxed);
             reload = false;
         }
 
         // if last refresh > 50 minutes, recollect all media items
-        if last_refresh_time.elapsed().as_secs() > (60 * 50) {
+        if last_refresh_time.elapsed().as_secs() > (60 * 55) {
+            info!("last refresh was more than 55 minutes ago, reloading all media items");
+
+            let mut lock = queue.lock().await;
             if config.initial_scan_complete() {
                 info!("refreshing media items");
-                queue.lock().unwrap().clear();
                 reload = true;
             } else {
                 error!(
                     "initial scan not complete, but 50 minutes have passed, this should not happen"
                 );
-                let lock = queue.lock().unwrap();
                 for item in lock.iter() {
-                    match database::save_media_item(*connection.lock().unwrap(), item) {
-                        Ok(_) => info!("saved media item to database"),
+                    let db_conn = connection.clone();
+                    let db_item = item.clone();
+                    let res = tokio::task::spawn_blocking(move || {
+                        database::save_media_item(&mut *db_conn.blocking_lock(), &db_item)
+                    });
+
+                    match res.await {
+                        Ok(_) => debug!("saved media item to database"),
                         Err(e) => error!("failed to save media item to database {}", e),
                     }
                 }
+                info!("saved all media items to database, initial scan complete");
             }
+
+            lock.clear();
         }
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 
@@ -115,95 +133,101 @@ pub fn all_present(items: &[MediaItem], connection: &mut DbConnection) -> bool {
 }
 
 /// Download items that are in the queue
-pub fn download_items(
+pub async fn download_items(
     config: &Config,
-    agent: &Agent,
-    connection: &Mutex<&mut DbConnection>,
+    agent: &Client,
+    connection: Arc<Mutex<DbConnection>>,
     queue: &Mutex<VecDeque<MediaItem>>,
     processing: &AtomicBool,
     waiting: &AtomicBool,
 ) {
     loop {
-        if !queue.lock().unwrap().is_empty() {
+        if !queue.lock().await.is_empty() {
             processing.store(true, Ordering::Relaxed);
         } else {
             processing.store(false, Ordering::Relaxed);
 
             // if we are waiting for the download - wait 10 minutes, otherwise 5 seconds
             if waiting.load(Ordering::Relaxed) {
-                std::thread::sleep(Duration::from_secs(60 * 10));
+                tokio::time::sleep(Duration::from_secs(60 * 10)).await;
             } else {
-                std::thread::sleep(Duration::from_secs(5));
+                tokio::time::sleep(Duration::from_secs(5)).await;
             }
         }
 
-        if let Some(mut item) = queue.lock().unwrap().pop_front() {
-            if database::in_database(*connection.lock().unwrap(), &item.id).unwrap() {
-                continue;
-            }
-
-            info!("downloading {}", item.baseUrl);
-            item.download_success = false;
-            item.download_attempts += 1;
-            if media::download_item(config, agent, &item).is_ok() {
-                info!("download successful");
-                item.download_success = true;
-            }
-
-            match (item.download_success, item.download_attempts) {
-                (true, _) | (false, 4) => {
-                    if !item.download_success {
-                        error!("failed to download item {} after 4 attempts", item.id);
-                    }
-
-                    match database::save_media_item(*connection.lock().unwrap(), &item) {
-                        Ok(_) => info!("saved media item to database"),
-                        Err(e) => error!("failed to save media item to database {}", e),
-                    }
+        {
+            let mut locked = queue.lock().await;
+            if let Some(mut item) = locked.pop_front() {
+                if database::in_database(&mut *connection.lock().await, &item.id).unwrap() {
+                    continue;
                 }
-                (false, _) => {
-                    queue.lock().unwrap().push_back(item);
+
+                info!("downloading {}", item.baseUrl);
+                item.download_success = false;
+                item.download_attempts += 1;
+                if media::download_item(config, agent, &item).await.is_ok() {
+                    info!("download successful");
+                    item.download_success = true;
+                }
+
+                match (item.download_success, item.download_attempts) {
+                    (true, _) | (false, 4) => {
+                        if !item.download_success {
+                            error!("failed to download item {} after 4 attempts", item.id);
+                        }
+
+                        let db_conn = connection.clone();
+                        let res = tokio::task::spawn_blocking(move || {
+                            database::save_media_item(&mut *db_conn.blocking_lock(), &item)
+                        });
+
+                        match res.await {
+                            Ok(_) => info!("saved media item to database"),
+                            Err(e) => error!("failed to save media item to database {}", e),
+                        }
+                    }
+                    (false, _) => {
+                        locked.push_back(item);
+                    }
                 }
             }
         }
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 
-pub fn download_scan(config: &Config, agent: &Agent, database: &mut DbConnection) {
-    let database = Mutex::new(database);
+pub async fn download_scan(config: &Config, agent: &Client, database: DbConnection) {
+    let database = Arc::new(Mutex::new(database));
     let download_queue: Mutex<VecDeque<MediaItem>> = Mutex::new(VecDeque::with_capacity(50));
     let processing = AtomicBool::new(false);
     let waiting = AtomicBool::new(false);
 
-    // create thread scope
-    std::thread::scope(|scope| {
+    tokio_scoped::scope(|scope| {
         // load new items
-        scope.spawn(|| {
-            load_new_items(
-                config,
-                agent,
-                &database,
-                &download_queue,
-                &processing,
-                &waiting,
-            )
-        });
+        scope.spawn(load_new_items(
+            config,
+            agent,
+            database.clone(),
+            &download_queue,
+            &processing,
+            &waiting,
+        ));
 
         // download items
-        scope.spawn(|| {
-            download_items(
-                config,
-                agent,
-                &database,
-                &download_queue,
-                &processing,
-                &waiting,
-            )
-        });
-    });
+        scope.spawn(download_items(
+            config,
+            agent,
+            database,
+            &download_queue,
+            &processing,
+            &waiting,
+        ));
+    })
 }
 
-pub fn run() {
+#[tokio::main]
+pub async fn run() {
     //XXX: adjustable scan times
     //XXX: Testing
 
@@ -214,7 +238,9 @@ pub fn run() {
     let mut database = establish_connection(&database_url).expect("failed to connect to database");
     run_migrations(&mut database).expect("failed to run migrations");
 
-    let config = Config::load(&agent, &mut database).expect("failed to load config");
+    let config = Config::load(&agent, &mut database)
+        .await
+        .expect("failed to load config");
 
-    download_scan(&config, &agent, &mut database);
+    download_scan(&config, &agent, database).await;
 }

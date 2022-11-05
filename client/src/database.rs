@@ -232,13 +232,18 @@ pub fn save_media_item(
 }
 
 /// check if a media item is present in the database, searching by id
-pub fn in_database(connection: &mut DbConnection, search_id: &str) -> Result<bool, Box<dyn Error>> {
+pub fn in_database(
+    connection: &mut DbConnection,
+    search_id: &str,
+) -> Result<bool, Box<dyn Error + Send + Sync + 'static>> {
     use crate::schema::media::dsl::*;
     let r: Vec<String> = media.select(id).filter(id.eq(search_id)).load(connection)?;
     Ok(!r.is_empty())
 }
 
-pub fn load_config(connection: &mut DbConnection) -> Result<Config, Box<dyn Error>> {
+pub fn load_config(
+    connection: &mut DbConnection,
+) -> Result<Config, Box<dyn Error + Send + Sync + 'static>> {
     // load every row from the config table into a hashmap of key-value pairs
     use crate::schema::config::dsl::*;
     let r: HashMap<String, String> = config
@@ -320,7 +325,7 @@ pub fn load_config(connection: &mut DbConnection) -> Result<Config, Box<dyn Erro
 pub fn save_config(
     connection: &mut DbConnection,
     save_config: &Config,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
     use crate::schema::config::dsl::*;
 
     // convert the config struct into a hashmap of key-value pairs

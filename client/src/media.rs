@@ -1,13 +1,17 @@
+use std::time::Duration;
+
 use crate::{config::Config, Id, Passcode};
-use log::{error, info, trace};
+use futures_util::TryStreamExt;
+use log::{error, trace};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use shared_libs::json_templates::MediaItem;
-use std::{
+use tokio::{
     fs::File,
-    io::Write,
-    time::{Duration, Instant},
+    io::{AsyncReadExt, AsyncWriteExt},
+    time::Instant,
 };
-use ureq::Agent;
+use tokio_util::io::StreamReader;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Register {
@@ -17,32 +21,21 @@ struct Register {
 
 /// connect to the webserver and register an account, this will return an id and passcode
 /// that we will need to peform further actions
-pub(crate) fn register(
+pub(crate) async fn register(
     config: &Config,
-    agent: &Agent,
+    agent: &Client,
 ) -> Result<(Id, Passcode), Box<dyn std::error::Error>> {
     let url = format!("{}/register", config.webserver_address);
     trace!("registering with server at address: {}", &url);
-    let res = agent.get(&url).set("x-psk", &config.preshared_key).call();
+    let res = agent
+        .get(&url)
+        .header("x-psk", &config.preshared_key)
+        .send()
+        .await?;
 
     trace!("got registration response");
 
-    let res = match res {
-        Ok(r) => r,
-        Err(e) => {
-            if let Some(r) = e.into_response() {
-                trace!("parsing error response");
-                r
-            } else {
-                return Err(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "unable to get media items",
-                )));
-            }
-        }
-    };
-
-    if !(res.status() >= 200 && res.status() < 300) {
+    if !res.status().is_success() {
         return Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
             "unable to register with api",
@@ -51,7 +44,7 @@ pub(crate) fn register(
 
     trace!("parsing registration response");
 
-    let body: Register = res.into_json()?;
+    let body: Register = res.json().await?;
 
     trace!("registration response parsed");
 
@@ -59,47 +52,28 @@ pub(crate) fn register(
 }
 
 /// connect to the server and request a url to authenticate to, for the user to connect their google account
-pub(crate) fn get_auth_url(
+pub(crate) async fn get_auth_url(
     config: &Config,
-    agent: &Agent,
+    agent: &Client,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    trace!("getting auth url");
+    let url = format!("{}/auth_url", config.webserver_address);
+
+    trace!("getting auth url from {}", &url);
 
     let res = agent
-        .get(&format!("{}/auth_url", config.webserver_address))
-        .set(
-            "authorization",
-            &format!(
-                "basic {}",
-                &base64::encode(format!(
-                    "{}:{}",
-                    config.local_id.as_ref().unwrap(),
-                    config.local_passcode.as_ref().unwrap()
-                ))
-            ),
+        .get(&url)
+        .basic_auth(
+            config.local_id.as_ref().unwrap(),
+            config.local_passcode.as_ref(),
         )
-        .call();
+        .send()
+        .await?;
 
     trace!("got auth url from server");
 
-    let res = match res {
-        Ok(r) => r,
-        Err(e) => {
-            if let Some(r) = e.into_response() {
-                trace!("parsing error response");
-                r
-            } else {
-                return Err(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "unable to get media items",
-                )));
-            }
-        }
-    };
-
-    if !(res.status() >= 200 && res.status() < 300) {
+    if !res.status().is_success() {
         error!("unable to get auth url from api: {}", res.status());
-        error!("body: {}", res.into_string()?);
+        error!("body: {}", res.text().await?);
         return Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
             "unable to get auth url",
@@ -108,52 +82,32 @@ pub(crate) fn get_auth_url(
 
     trace!("parsing auth url response");
 
-    Ok(res.into_string()?)
+    Ok(res.text().await?)
 }
 
 /// connect to the api and await the user completing authentication
-pub(crate) fn await_user_authentication(
+pub(crate) async fn await_user_authentication(
     config: &Config,
-    agent: &Agent,
+    agent: &Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    trace!("awaiting user authentication");
+    let url = format!("{}/is_logged_in", config.webserver_address);
+
+    trace!("awaiting user authentication, from url {}", &url);
 
     let res = agent
-        .get(&format!("{}/is_logged_in", config.webserver_address))
-        .set(
-            "authorization",
-            &format!(
-                "basic {}",
-                &base64::encode(format!(
-                    "{}:{}",
-                    config.local_id.as_ref().unwrap(),
-                    config.local_passcode.as_ref().unwrap()
-                ))
-            ),
+        .get(&url)
+        .basic_auth(
+            config.local_id.as_ref().unwrap(),
+            config.local_passcode.as_ref(),
         )
-        .timeout(Duration::from_secs(120))
-        .call();
+        .send()
+        .await?;
 
     trace!("got response from server");
 
-    let res = match res {
-        Ok(r) => r,
-        Err(e) => {
-            if let Some(r) = e.into_response() {
-                trace!("parsing error response");
-                r
-            } else {
-                return Err(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "unable to get media items",
-                )));
-            }
-        }
-    };
-
-    if !(res.status() >= 200 && res.status() < 300) {
+    if !res.status().is_success() {
         error!("unable to get auth url: {}", res.status());
-        error!("body: {}", res.into_string()?);
+        error!("body: {}", res.text().await?);
         return Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
             "unable to await user authentication",
@@ -165,11 +119,11 @@ pub(crate) fn await_user_authentication(
     Ok(())
 }
 
-pub(crate) fn get_media_items(
+pub(crate) async fn get_media_items(
     config: &Config,
-    agent: &Agent,
+    agent: &Client,
     reload: bool,
-) -> Result<Vec<MediaItem>, Box<dyn std::error::Error>> {
+) -> Result<Vec<MediaItem>, Box<dyn std::error::Error + Send + Sync + 'static>> {
     let url = format!(
         "{}/download?reload={}&max_count=25",
         config.webserver_address, reload
@@ -180,40 +134,19 @@ pub(crate) fn get_media_items(
 
     let res = agent
         .get(&url)
-        .set(
-            "authorization",
-            &format!(
-                "basic {}",
-                &base64::encode(format!(
-                    "{}:{}",
-                    config.local_id.as_ref().unwrap(),
-                    config.local_passcode.as_ref().unwrap()
-                ))
-            ),
+        .basic_auth(
+            config.local_id.as_ref().unwrap(),
+            config.local_passcode.as_ref(),
         )
-        .call();
+        .send()
+        .await?;
 
     trace!("got media items");
 
-    let res = match res {
-        Ok(r) => r,
-        Err(e) => {
-            if let Some(r) = e.into_response() {
-                trace!("parsing error response");
-                r
-            } else {
-                return Err(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "unable to get media items",
-                )));
-            }
-        }
-    };
-
-    if !(res.status() >= 200 && res.status() < 300) {
+    if !res.status().is_success() {
         //print response body
         error!("unable to download media item: {}", res.status());
-        error!("body: {}", res.into_string()?);
+        error!("body: {}", res.text().await?);
 
         return Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
@@ -223,18 +156,53 @@ pub(crate) fn get_media_items(
 
     trace!("parsing media items");
 
-    let body = res.into_json()?;
-
-    trace!("parsed media items");
-
+    let body = res.json().await?;
     Ok(body)
 }
 
-pub(crate) fn download_item(
+async fn download<R>(
     config: &Config,
-    agent: &Agent,
+    mut reader: R,
+    mut dest: File,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>>
+where
+    R: AsyncReadExt + Unpin,
+{
+    // copy in chunks, respecting a rate limit if present
+    // we limit in 100ms timeframes
+    let mut total_bytes = 0;
+    let mut time = Instant::now();
+    let mut buf = vec![0; 1024.min(config.max_download_speed as usize / 10)];
+    loop {
+        let bytes = reader.read(&mut buf).await?;
+        if bytes == 0 {
+            break Ok(());
+        }
+        dest.write_all(&buf[..bytes]).await?;
+        total_bytes += bytes;
+
+        if config.max_download_speed > 0
+            && total_bytes / 100 > config.max_download_speed as usize / 100
+        {
+            // if we are under a second, sleep for the remaining time
+            if time.elapsed().as_millis() < 100 {
+                let remaining = 100_000 - time.elapsed().as_micros();
+                tokio::time::sleep(Duration::from_micros(
+                    remaining.try_into().unwrap_or(u64::MAX),
+                ))
+                .await;
+            }
+            time = Instant::now();
+            total_bytes = 0;
+        }
+    }
+}
+
+pub(crate) async fn download_item(
+    config: &Config,
+    agent: &Client,
     item: &MediaItem,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     trace!("downloading item: {:?}", item);
     let file_name = &item.id;
 
@@ -248,27 +216,12 @@ pub(crate) fn download_item(
     trace!("downloading item: {} with param: {}", item.id, param);
     trace!("url: {}", &url);
 
-    let res = agent.get(&url).call();
+    let res = agent.get(&url).send().await?;
 
-    let res = match res {
-        Ok(r) => r,
-        Err(e) => {
-            if let Some(r) = e.into_response() {
-                trace!("parsing error response");
-                r
-            } else {
-                return Err(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "unable to get media items",
-                )));
-            }
-        }
-    };
-
-    if !(res.status() >= 200 && res.status() < 300) {
+    if !res.status().is_success() {
         //print response body
         error!("unable to download media item: {}", res.status());
-        error!("body: {}", res.into_string()?);
+        error!("body: {}", res.text().await?);
 
         return Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
@@ -279,16 +232,16 @@ pub(crate) fn download_item(
     // if config.temp_path doesn't exist - create it
     if !config.temp_path.exists() {
         trace!("creating temp path: {:?}", config.temp_path);
-        std::fs::create_dir_all(&config.temp_path)?;
+        tokio::fs::create_dir_all(&config.temp_path).await?;
     }
 
     let tmp_dir = tempfile::Builder::new()
         .prefix("google_photos")
         .tempdir_in(&config.temp_path)?;
-    let mut dest = {
+    let dest = {
         let fname = tmp_dir.path().join(&file_name);
-        info!("will be located under: '{:?}'", fname);
-        File::create(fname)?
+        trace!("will be located under: '{:?}'", fname);
+        File::create(fname).await?
     };
 
     trace!(
@@ -297,35 +250,24 @@ pub(crate) fn download_item(
         &dest
     );
 
-    let mut reader = res.into_reader();
+    let length = res.content_length();
 
-    // copy in chunks, respecting a rate limit if present
-    // we limit in 100ms timeframes, with a max chunk size of 512 bytes
-    let mut total_bytes = 0;
-    let mut time = Instant::now();
-    let mut buf = [0; 512];
-    loop {
-        let bytes = reader.read(&mut buf)?;
-        if bytes == 0 {
-            break;
+    let timeout = {
+        if let Some(len) = length {
+            // for every 1000000 bytes (or max download rate), add 2 seconds
+            (len / (1000000.max(config.max_download_speed)) * 2) + 5
+        } else {
+            // give it 10 minutes to download
+            60 * 10
         }
-        dest.write_all(&buf[..bytes])?;
-        total_bytes += bytes;
+    };
 
-        if config.max_download_speed > 0
-            && total_bytes / 100 > config.max_download_speed as usize / 100
-        {
-            // if we are under a second, sleep for the remaining time
-            if time.elapsed().as_millis() < 100 {
-                let remaining = 100_000 - time.elapsed().as_micros();
-                std::thread::sleep(Duration::from_micros(
-                    remaining.try_into().unwrap_or(u64::MAX),
-                ));
-            }
-            time = Instant::now();
-            total_bytes = 0;
-        }
-    }
+    let reader = res
+        .bytes_stream()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
+    let reader = StreamReader::new(reader);
+
+    tokio::time::timeout(Duration::from_secs(timeout), download(config, reader, dest)).await??;
 
     trace!("moving to final destination");
 

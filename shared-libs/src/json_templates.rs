@@ -15,7 +15,7 @@ pub struct RequestParameters {
     pub max_count: u8,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MediaMetadata {
     pub creationTime: String,
     pub width: String,
@@ -24,7 +24,7 @@ pub struct MediaMetadata {
     pub video: Option<Video>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Photo {
     pub cameraMake: Option<String>,
     pub cameraModel: Option<String>,
@@ -34,7 +34,7 @@ pub struct Photo {
     pub exposureTime: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Video {
     pub cameraMake: Option<String>,
     pub cameraModel: Option<String>,
@@ -42,7 +42,7 @@ pub struct Video {
     pub status: Option<VideoProcessingStatus>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum VideoProcessingStatus {
     UNSPECIFIED,
     PROCESSING,
@@ -61,13 +61,13 @@ impl Display for VideoProcessingStatus {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ContributorInfo {
     pub profilePictureBaseUrl: String,
     pub displayName: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MediaItem {
     pub id: String,
     pub description: Option<String>,

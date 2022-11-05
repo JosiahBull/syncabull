@@ -3,9 +3,9 @@ use crate::{
     media, Id, Passcode,
 };
 use log::{error, info};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::{error::Error, path::PathBuf, process::exit, sync::Mutex};
-use ureq::Agent;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
@@ -30,13 +30,16 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn load(agent: &Agent, connection: &mut DbConnection) -> Result<Config, Box<dyn Error>> {
+    pub async fn load(
+        agent: &Client,
+        connection: &mut DbConnection,
+    ) -> Result<Config, Box<dyn Error + Send + Sync + 'static>> {
         let mut config = database::load_config(connection)?;
 
         if config.local_id.is_none() {
             info!("client is not registered, registering with api...");
 
-            let (id, passcode) = match media::register(&config, agent) {
+            let (id, passcode) = match media::register(&config, agent).await {
                 Ok(f) => f,
                 Err(e) => {
                     error!("unable to register with api {}", e);
@@ -54,7 +57,7 @@ impl Config {
         if !config.authenticated {
             info!("client is not authenticated, getting authentication url now.");
 
-            let auth_url = match media::get_auth_url(&config, agent) {
+            let auth_url = match media::get_auth_url(&config, agent).await {
                 Ok(f) => f,
                 Err(e) => {
                     error!("unable to get auth url {}", e);
@@ -68,7 +71,7 @@ impl Config {
             );
 
             // wait for the user to authenticate
-            if let Err(e) = media::await_user_authentication(&config, agent) {
+            if let Err(e) = media::await_user_authentication(&config, agent).await {
                 error!("authentication failed {}", e);
                 exit(1);
             }
@@ -82,14 +85,17 @@ impl Config {
         Ok(config)
     }
 
-    pub fn save(&self, connection: &mut DbConnection) -> Result<(), Box<dyn Error>> {
+    pub fn save(
+        &self,
+        connection: &mut DbConnection,
+    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         database::save_config(connection, self)
     }
 
     pub fn set_initial_scan_complete(
         &self,
         connection: &mut DbConnection,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         *self.initial_scan_complete.lock().unwrap() = true;
         database::save_config(connection, self)
     }
