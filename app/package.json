@@ -11,7 +11,7 @@
     "webpack": "^4.46.0"
   },
   "devDependencies": {
-    "@nuxt/types": "^2.15.8",
+    "@nuxt/types": "^2.16.3",
     "@nuxt/typescript-build": "^2.1.0"
   },
   "name": "app",
